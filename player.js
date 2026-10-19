@@ -3,7 +3,7 @@
    Also the walk-mode button. */
 'use strict';
 /* SKI holds the stats your gear changes (gear.js applyGear sets them): drag, turn rate, landing tolerance, trick score bonus, push on flat ground, hop power and armor */
-const SKI={drag:1,turn:1,tol:0.6,style:1,push:1,hop:1,armor:0};
+const SKI={drag:1,turn:1,tol:0.6,style:1,push:1,hop:1,spin:1,armor:0};
 /* Hitting a tree or rock is a roll, not a certainty. base is the wipeout chance for a full-speed hit; SKI.armor (0 to 1, for future gear)
    reduces it. A hit that does not wipe you out just clips you: you bounce off and lose a little speed. */
 const CRASH={base:0.30,grace:1.8};
@@ -101,7 +101,7 @@ function walkStep(dt,inp,ev){
   P.popCool-=dt;
   if(inp.ry<0.25)P.flick=false;
   if(inp.ry>0.55&&!P.flick){P.flick=true;if(P.grounded&&P.popCool<=0){P.vy=6.2;P.grounded=false;P.popCool=0.4;}}
-  let nx=clamp(P.x+P.vx*dt,-410,410),nz=clamp(P.z+P.vz*dt,-312,1745);
+  let nx=clamp(P.x+P.vx*dt,-XMAX,XMAX),nz=clamp(P.z+P.vz*dt,ZMIN,ZMAX);
   if(walkOK(nx,nz,P.x,P.z,P.grounded)){P.x=nx;P.z=nz;}
   else if(walkOK(nx,P.z,P.x,P.z,P.grounded)){P.x=nx;P.vz*=0.3;}        /* slide along a tree or a steep face */
   else if(walkOK(P.x,nz,P.x,P.z,P.grounded)){P.z=nz;P.vx*=0.3;}
@@ -125,7 +125,7 @@ function stepPlayer(dt,inp,ev){
   if(P.crash>0){
     P.crash-=dt;P.crashT+=dt;
     const k=Math.exp(-1.2*dt);P.vx*=k;P.vz*=k;
-    P.x=clamp(P.x+P.vx*dt,-410,410);P.z=clamp(P.z+P.vz*dt,-312,1745);
+    P.x=clamp(P.x+P.vx*dt,-XMAX,XMAX);P.z=clamp(P.z+P.vz*dt,ZMIN,ZMAX);
     P.y=H(P.x,P.z);P.vy=0;P.grounded=true;
     /* get up early: once the worst of the fall is over, any firm stick input stands you back up */
     if(P.crash>0&&P.crashT>P.crashMin&&(Math.abs(inp.lx)>0.5||Math.abs(inp.ly)>0.5||inp.ry>0.55))P.crash=0;
@@ -208,7 +208,7 @@ function stepPlayer(dt,inp,ev){
       else ts=sg*(sfl+((sa-sfl)>0.28?1:0))*Math.PI;
       if(Math.abs(P.spin-ts)<2.4){sIn=0;P.spin+=(ts-P.spin)*ka;}
     }
-    P.fv+=(fIn*9.2-P.fv)*Math.min(1,dt*10);P.sv+=(sIn*10.5-P.sv)*Math.min(1,dt*10);
+    P.fv+=(fIn*9.2-P.fv)*Math.min(1,dt*10);P.sv+=(sIn*10.5*SKI.spin-P.sv)*Math.min(1,dt*10);
     P.flip+=P.fv*dt;P.spin+=P.sv*dt;
     let g=null;
     if(Math.hypot(rx,ry)>0.55&&!P.flick){g=Math.abs(rx)>Math.abs(ry)?(rx<0?'left':'right'):(ry>0?'up':'down');}
@@ -218,8 +218,8 @@ function stepPlayer(dt,inp,ev){
   /* move, stay inside the map, and check for trees and rocks: a hit either clips you (bump) or wipes you out (doCrash) */
   const ox=P.x,oz=P.z;
   P.x+=P.vx*dt;P.z+=P.vz*dt;
-  if(P.x<-410||P.x>410){P.x=clamp(P.x,-410,410);P.vx=0;}
-  if(P.z<-312||P.z>1745){P.z=clamp(P.z,-312,1745);P.vz=0;}
+  if(P.x<-XMAX||P.x>XMAX){P.x=clamp(P.x,-XMAX,XMAX);P.vx=0;}
+  if(P.z<ZMIN||P.z>ZMAX){P.z=clamp(P.z,ZMIN,ZMAX);P.vz=0;}
   const gy=H(P.x,P.z);
   if(P.grace<=0&&P.y-gy<2.4){
     const o=hitObstacle(P.x,P.z,0.5);
@@ -283,6 +283,7 @@ function makeRider(){
     glove:M(0x1b222c),pole:M(0x8d97a3)};
   const group=new THREE.Group();
   const upper=new THREE.Group();upper.position.set(0,0.9,0);group.add(upper);
+  upper.rotation.order='YXZ';   /* turn first, then lean, so a snowboarder standing sideways still leans over their own toes */
   const parts={},gp={shell:new THREE.Group(),ridge:new THREE.Group(),ridgeSides:[],trailSides:[]},legs=[],boots=[],legG={},skiG={},poles=[];
   const helm=M(0x161d28),HIP=0.86;
   bx(0.62,0.72,0.38,mats.jacket,0,0.38,0,upper);
@@ -329,6 +330,13 @@ function makeRider(){
     const tip=bx(0.13,0.05,0.35,mats.accent,0.2*sd,0.07,1.22,sg);tip.rotation.x=-0.35;
     parts['ski'+sd]=ski;parts['str'+sd]=str;
   }
+  /* the Tahoe Legend snowboard: hidden until worn. The board points down the hill and the rider stands across it. */
+  const board=new THREE.Group();group.add(board);board.visible=false;gp.board=board;
+  const gold=M(0xffc04d,0x7a4a00);
+  bx(0.34,0.04,1.4,mats.skiBase,0,0.04,0,board);
+  for(const e of [-1,1]){const tip=bx(0.34,0.04,0.28,mats.skiBase,0,0.075,0.8*e,board);tip.rotation.x=-0.38*e;}   /* upturned nose and tail */
+  bx(0.1,0.012,1.3,mats.accent,0,0.066,0,board);                                                            /* topsheet stripe */
+  for(const e of [-1,1]){bx(0.02,0.05,1.42,gold,0.17*e,0.04,0,board);bx(0.3,0.08,0.16,M(0x1b222c),0,0.09,0.33*e,board);}   /* gold edges and bindings */
   group.scale.setScalar(1.12);
   const shadow=new THREE.Mesh(new THREE.CircleGeometry(1,18),new THREE.MeshBasicMaterial({color:0x13243a,transparent:true,opacity:0.28,depthWrite:false,fog:false}));
   shadow.rotation.x=-Math.PI/2;
@@ -349,7 +357,8 @@ const hexRGB=h=>[((h>>16)&255)/255,((h>>8)&255)/255,(h&255)/255];
 /* a look is what a rider is wearing: item ids plus [jacket,pants,boots,ski accent] colours. Sent to other players and applied to their model. */
 function setRiderLook(R,look){
   const lost=look.skis==='lost';
-  R.mats.skiBase.color.setHex(lost?0x12171f:look.c[3]);
+  R.board=look.skis==='board';   /* animateLegs swaps skis for the board */
+  R.mats.skiBase.color.setHex(lost?0x12171f:(R.board?0x14233d:look.c[3]));
   R.mats.stripe.color.setHex(look.c[3]);R.mats.accent.color.setHex(look.c[3]);
   R.parts.str1.visible=R.parts['str-1'].visible=lost;
   R.mats.jacket.color.setHex(look.c[0]);R.mats.pants.color.setHex(look.c[1]);R.mats.boot.color.setHex(look.c[2]);
@@ -372,16 +381,20 @@ function animateLegs(R,S,dt,sp){
   else if(S.grounded&&!(S.crash>0)){rate=clamp(sp*0.2,0,5.2);amp=0.2*clamp((sp-2)/9,0,1);}
   R.ph+=rate*dt;
   const kk=Math.min(1,dt*14),air=!S.grounded&&!walking&&!(S.crash>0);
+  const brd=!!R.board&&!walking;   /* on a snowboard: feet one behind the other across the board, body turned sideways, no poles */
   for(const sd of [-1,1]){
     const lg=R.legG[sd];
-    let tgt=amp*Math.sin(R.ph+(sd===1?0:Math.PI));
-    if(air)tgt=-0.3;                       /* legs tuck up and back in the air */
+    let tgt=brd?0:amp*Math.sin(R.ph+(sd===1?0:Math.PI));
+    if(air&&!brd)tgt=-0.3;                 /* legs tuck up and back in the air */
     lg.rotation.x+=(tgt-lg.rotation.x)*kk;
+    if(brd){lg.position.set(0,0.86,0.33*sd);lg.rotation.y=1.4;}else{lg.position.set(0.17*sd,0.86,0.06);lg.rotation.y=0;}
     const a=lg.rotation.x,sg=R.skiG[sd];
     sg.position.set(0,0.86*(1-Math.cos(a)),-0.86*Math.sin(a));
-    sg.visible=!walking;
+    sg.visible=!walking&&!brd;
   }
-  R.poles.forEach(m=>{m.visible=!walking;});
+  R.gp.board.visible=brd;
+  R.upper.rotation.y+=((brd?1.2:0)-R.upper.rotation.y)*kk;
+  R.poles.forEach(m=>{m.visible=!walking&&!brd;});
   return amp;
 }
 /* poses one rider model from a state object (the local P, or a remote rider's smoothed state). Returns ground speed. */
@@ -455,13 +468,26 @@ function updateSkier(dt){
 
 /* ================= walk mode button ================= */
 /* E or the boot button: take your skis off or put them back on (only while exploring, and only on the ground) */
+/* E or the mount button cycles walk -> skis -> snowboard -> walk (the snowboard step only once you own one) */
+let lastSkis='std';   /* the skis to put back on after walking or boarding */
+function rideMode(){return P.walk?'walk':(state.gear.skis==='board'?'board':'ski');}
+function nextRide(){const m=rideMode();return m==='walk'?'ski':(m==='ski'&&state.have.board?'board':'walk');}
 function toggleWalk(){
   if(state.mode!=='explore'||gearOpen())return;
-  if(!P.walk){
-    if(!setWalk(true)){toast('Land first','You can take your skis off once you are on the ground.',1600);return;}
+  const next=nextRide();
+  if(!P.walk&&(!P.grounded||P.crash>0)){toast('Land first','You can switch once you are on the ground.',1600);return;}
+  if(next==='walk'){
+    setWalk(true);
     state.runOn=false;state.runArmed=true;state.runT=0;$('timer').innerHTML='';
-    toast('Walk mode','W and S walk, A and D turn, arrow up hops. Press E to put your skis back on.',3200);
-  } else {setWalk(false);toast('Skis on','Back to skiing.',1100);}
+    toast('Walk mode','W and S walk, A and D turn, arrow up hops. Press E to ride again.',3200);
+  } else if(next==='ski'){
+    if(state.gear.skis!=='board')lastSkis=state.gear.skis;
+    state.gear.skis=lastSkis;applyGear();setWalk(false);
+    toast('Skis on','Back to skiing.'+(state.have.board?' Press E again for the snowboard.':''),1400);
+  } else {
+    lastSkis=state.gear.skis;state.gear.skis='board';applyGear();
+    toast('Snowboard on','Strapped in. Press E to walk.',1400);
+  }
 }
 $('walkBtn').addEventListener('click',toggleWalk);
 /* keep the walk button's icon and the "Walking" / "Switch" label in step with P */
@@ -469,10 +495,11 @@ let walkShown=null;
 function updateWalkUI(){
   const show=state.mode==='explore';
   $('walkBtn').classList.toggle('hidden',!show);
-  if(P.walk!==walkShown){
-    walkShown=P.walk;
-    $('icBoot').classList.toggle('hidden',P.walk);$('icSkis').classList.toggle('hidden',!P.walk);   /* the icon shows what the button will do */
-    const t=P.walk?'Put your skis back on (E)':'Take your skis off to walk (E)';$('walkBtn').title=t;$('walkBtn').setAttribute('aria-label',t);
+  const next=nextRide();
+  if(next!==walkShown){
+    walkShown=next;   /* the icon shows what the button will do next */
+    $('icBoot').classList.toggle('hidden',next!=='walk');$('icSkis').classList.toggle('hidden',next!=='ski');$('icBoard').classList.toggle('hidden',next!=='board');
+    const t=next==='walk'?'Walk (E)':(next==='ski'?'Put your skis on (E)':'Switch to the snowboard (E)');$('walkBtn').title=t;$('walkBtn').setAttribute('aria-label',t);
   }
   const st=P.walk?'Walking':(P.sw?'Switch':'');
   $('stance').classList.toggle('hidden',!st||state.mode==='title'||state.mode==='reveal'||state.mode==='results');

@@ -53,6 +53,7 @@ body{
 #c{position:fixed;inset:0;width:100%;height:100%;display:block}
 #vignette{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .25s;
   background:radial-gradient(ellipse at center,rgba(255,255,255,0) 45%,rgba(214,232,248,.55) 100%)}
+#sense{position:fixed;inset:0;pointer-events:none;opacity:0;z-index:2;background:radial-gradient(ellipse at center,rgba(255,200,90,0) 55%,rgba(255,185,70,.6) 100%)}
 #err{position:fixed;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:24px;background:var(--ink);font-size:18px}
 
 .panel{background:var(--glass);border:1px solid var(--glass-edge);border-radius:14px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
@@ -108,6 +109,33 @@ body{
 #title .how p{margin:0 0 8px}
 #title .how p:last-child{margin:0}
 kbd{font:600 12px var(--font-body);background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);border-bottom-width:2px;border-radius:5px;padding:1px 6px}
+#title .trow{display:flex;gap:10px;flex-wrap:wrap}
+#place{padding:14px 16px 16px;margin-bottom:18px}
+#place .pk,#pinCard .pk{font-size:12.5px;color:var(--muted);letter-spacing:.02em}
+#place h2{font-family:var(--font-display);font-weight:700;font-size:clamp(36px,8vw,52px);line-height:1;margin:2px 0 6px}
+#place .pb{margin:0 0 12px;font-size:14.5px;line-height:1.45}
+.pstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:12px}
+.pstats div{background:rgba(255,255,255,.06);border:1px solid var(--glass-edge);border-radius:10px;padding:8px 10px}
+.pstats b{display:block;font-family:var(--font-display);font-weight:600;font-size:17px;line-height:1.1;color:var(--gold)}
+.pstats span{font-size:12px;color:var(--muted)}
+.pfact{border-top:1px solid var(--glass-edge);padding-top:10px}
+.pfl{font-size:12.5px;color:var(--ice);font-weight:700}
+.pfl span{color:var(--muted);font-weight:500;margin-left:6px}
+.pfact p{margin:6px 0 10px;font-size:15px;line-height:1.5;min-height:3em}
+.pfnav{display:flex;gap:8px}
+#worlds{position:fixed;inset:0;z-index:8;display:flex;flex-direction:column;align-items:center;gap:10px;background:radial-gradient(ellipse at center,#10284a 0%,#050c16 75%);
+  padding:calc(14px + var(--st)) calc(14px + var(--sr)) calc(14px + var(--sb)) calc(14px + var(--sl))}
+#worlds.hidden{display:none}
+.wtop{width:100%;max-width:900px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.wtop h2{font-family:var(--font-display);font-weight:700;font-size:30px;margin:0;flex:1}
+.wtabs{display:flex;gap:6px}
+.gwrap{flex:1;width:100%;max-width:900px;min-height:0;position:relative}
+#globe{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:grab}
+#pinCard{width:min(460px,100%);padding:12px 16px;text-align:center}
+#pinCard h3{font-family:var(--font-display);font-weight:700;font-size:28px;margin:2px 0 4px}
+#pinCard p{margin:0 0 10px;font-size:14px;color:#e6f1fa}
+#pinCard .btn:disabled{opacity:.5;cursor:not-allowed}
+.wfoot{display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:center;font-size:12.5px;color:var(--muted)}
 #title .note{font-size:12.5px;color:var(--muted);margin-top:12px}
 
 /* map overlay */
@@ -176,6 +204,8 @@ kbd{font:600 12px var(--font-body);background:rgba(255,255,255,.14);border:1px s
 /* big unlock reveal */
 #unlock{position:fixed;inset:0;z-index:7;display:flex;overflow-y:auto;padding:calc(20px + var(--st)) calc(20px + var(--sr)) calc(20px + var(--sb)) calc(20px + var(--sl));background:rgba(5,12,22,.66)}
 #unlock .ucard{margin:auto;width:min(420px,100%);padding:26px 26px 22px;text-align:center;border-color:rgba(255,210,122,.55);box-shadow:0 0 60px rgba(255,210,122,.22)}
+#unlock.legend .ucard{border-color:#ffb347;box-shadow:0 0 70px rgba(255,160,50,.45)}
+#unlock.legend .ukick{color:#ffb347;text-transform:uppercase;letter-spacing:.08em}
 .ukick{font-family:var(--font-display);font-weight:700;font-size:22px;color:var(--gold);letter-spacing:.02em}
 .uico{width:104px;height:104px;margin:14px auto 8px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 40%,rgba(255,210,122,.38),rgba(255,210,122,.08) 70%);border:1px solid rgba(255,210,122,.6);animation:uPop .6s cubic-bezier(.2,1.4,.4,1) both}
 .uico svg{width:58px;height:58px;stroke:var(--gold);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
@@ -309,6 +339,7 @@ body.touch #stance{left:50%;transform:translateX(-50%);bottom:auto;top:calc(var(
 <body>
 <canvas id="c"></canvas>
 <div id="vignette"></div>
+<div id="sense"></div>
 
 <div id="pad"></div>
 <div class="stick" id="stickL"><div class="knob"></div></div>
@@ -342,7 +373,7 @@ body.touch #stance{left:50%;transform:translateX(-50%);bottom:auto;top:calc(var(
     </div>
     <div id="dock">
       <button class="ibtn" id="gearBtn" title="Gear (G)" aria-label="Gear"><span id="icGear"></span></button>
-      <button class="ibtn hidden" id="walkBtn" title="Take your skis off (E)" aria-label="Walk mode"><span id="icBoot"></span><span id="icSkis" class="hidden"></span></button>
+      <button class="ibtn hidden" id="walkBtn" title="Walk (E)" aria-label="Walk (E)"><span id="icBoot"></span><span id="icSkis" class="hidden"></span><span id="icBoard" class="hidden"></span></button>
       <button class="ibtn hidden" id="ridersBtn" title="Riders (R)" aria-label="Riders"><span id="icPeople"></span><b class="badge" id="ridersBadge">1</b></button>
       <button class="ibtn hidden" id="boardBtn" title="Leaderboard (B)" aria-label="Leaderboard"><span id="icTrophy"></span></button>
       <button class="ibtn" id="menuBtn" title="Menu (Esc)" aria-label="Menu"><span id="icMenu"></span></button>
@@ -357,14 +388,22 @@ body.touch #stance{left:50%;transform:translateX(-50%);bottom:auto;top:calc(var(
   <div id="toast"><div class="t1"></div><div class="t2"></div></div>
   <div id="trick"><div class="tn"></div><div class="tp"></div></div>
   <div id="callout"></div>
-  <div id="hints">WASD leans (W go, S brake, A and D carve). Arrow keys trick (down loads, up hops). E toggles walk mode. Keyboard only, no mouse needed. Hop (arrow up) then push WASD to flip and spin; arrows grab. Off a ramp, let go of WASD first. Hold Backspace to ride the helicopter back up. B leaderboard, Esc menu. Double-click any panel to collapse it.</div>
+  <div id="hints">WASD leans (W go, S brake, A and D carve). Arrow keys trick (down loads, up hops). E switches between walking, skis and the snowboard (once you find one). Keyboard only, no mouse needed. Hop (arrow up) then push WASD to flip and spin; arrows grab. Off a ramp, let go of WASD first. Hold Backspace to ride the helicopter back up. B leaderboard, Esc menu. Double-click any panel to collapse it.</div>
 </div>
 
 <div id="title">
   <div class="card">
     <h1>Snowchasers</h1>
-    <p class="tag">Discover the mountain. Master the descent. Find your own line.</p>
-    <div class="panel how">
+    <p class="tag" id="titleTag">Discover the mountain. Master the descent. Find your own line.</p>
+    <div class="panel hidden" id="place">
+      <div class="pk" id="placeKick"></div>
+      <h2 id="placeName"></h2>
+      <p class="pb" id="placeBlurb"></p>
+      <div class="pstats" id="placeStats"></div>
+      <div class="pfact"><div class="pfl">Did you know? <span id="factNum"></span></div><p id="factText"></p>
+        <div class="pfnav"><button class="chip" id="factPrev">Back</button><button class="chip" id="factNext">Next fact</button></div></div>
+    </div>
+    <div class="panel how" id="howPanel">
       <p>Ski down the mountain and find four torn pieces of an old map. Each one is hiding somewhere different: a weather station, a cliff kicker, a cabin in the trees, and something frozen.</p>
       <p><b>Left stick leans.</b> Push forward to go (it works on flat ground too), pull back to brake, push sideways to carve.</p>
       <p><b>Right stick tricks.</b> Pull down to load, flick up to hop. After a hop, push the left stick to flip (up and down) or spin (sideways). Off a ramp, let go of the stick first. The right stick grabs.</p>
@@ -378,7 +417,7 @@ body.touch #stance{left:50%;transform:translateX(-50%);bottom:auto;top:calc(var(
       <div class="mpr" id="mpRow"><label for="roomCode">Room code</label><input class="mpin" id="roomCode" value="snowchasers" maxlength="48" autocomplete="off" spellcheck="false"><button class="chip" id="roomJoin">Join</button></div>
       <p class="mpn" id="mpNote">Everyone who enters the same code rides the same mountain. Pick your own code for a private group.</p>
     </div>
-    <button class="btn" id="startBtn">Drop in</button>
+    <div class="trow"><button class="btn" id="startBtn">Drop in</button><button class="btn alt" id="worldBtn">World map</button></div>
     <div class="note">Feel prototype, no multiplayer yet. <button class="chip" id="skipBtn" style="margin-left:6px">Skip to the finale</button> <button class="chip danger hidden" id="titleReset">Reset demo</button></div>
   </div>
 </div>
@@ -428,6 +467,7 @@ body.touch #stance{left:50%;transform:translateX(-50%);bottom:auto;top:calc(var(
   <div class="mrow"><label>Ghosts</label><button class="chip" id="ghostBtn">Ghosts on</button></div>
   <div class="mrow"><label for="seedIn">Course seed</label><span class="mpr" style="gap:8px"><input class="mpin" id="seedIn" type="number" min="1" max="999999" style="max-width:110px"><button class="chip" id="seedBtn">New course</button></span></div>
   <p class="note">The seed changes the forest and rocks. Every seed has its own best times and leaderboard. All sound and music is generated in code, so there are no audio files and nothing to license.</p>
+  <div class="mrow"><label>Mountain</label><button class="chip" id="menuWorld">World map</button></div>
   <div class="mrow"><label>Progress</label><button class="chip danger" id="resetBtn">Reset demo</button></div>
   <p class="note" id="saveInfo"></p>
   <button class="chip" id="menuClose">Close</button>
@@ -457,16 +497,34 @@ body.touch #stance{left:50%;transform:translateX(-50%);bottom:auto;top:calc(var(
   <button class="chip" id="gearClose">Close</button>
 </div>
 
+<div class="hidden" id="worlds" role="dialog" aria-modal="true" aria-labelledby="worldsTitle">
+  <div class="wtop">
+    <h2 id="worldsTitle">World map</h2>
+    <div class="wtabs"><button class="chip on" id="wtEarth">World 1: Earth</button><button class="chip locked" id="wtMoon">World 2: The Moon</button></div>
+    <button class="chip" id="worldsClose">Close (Esc)</button>
+  </div>
+  <div class="gwrap" id="gwrap"><canvas id="globe" aria-label="Globe of Earth. Drag to spin it and tap a pin to choose a mountain."></canvas></div>
+  <div class="panel hidden" id="pinCard">
+    <div class="pk" id="pinRegion"></div>
+    <h3 id="pinName"></h3>
+    <p id="pinNote"></p>
+    <button class="btn" id="pinGo">Travel here</button>
+  </div>
+  <div class="wfoot"><button class="chip" id="goTutorial">Tutorial: The Lost Line</button><span>Drag to spin the globe. Tap a pin.</span></div>
+</div>
+
 <div id="err">This prototype needs WebGL and an internet connection to load three.js. Try a current desktop or mobile browser.</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="core.js"></script>
+<script src="mountains.js"></script>
 <script src="terrain.js"></script>
 <script src="quests.js"></script>
 <script src="audio.js"></script>
 <script src="world.js"></script>
 <script src="player.js"></script>
 <script src="ui.js"></script>
+<script src="globe.js"></script>
 <script src="gear.js"></script>
 <script src="multiplayer.js"></script>
 <script src="ghosts.js"></script>

@@ -12,7 +12,7 @@ const net={mem:{},recGhost:null,myLabel:'',state:'none',isOwner:false,error:'',r
   remotes:new Map(),names:{},last:{},sendT:0,seen:new Set(),invite:null,myCall:null,lane:0,unsubs:[],resolving:false,uiT:0,boardT:0};
 /* helpers for checking incoming data: round numbers, allow only known gear ids, keep numbers in range, and clean up room codes */
 const r2=v=>Math.round(v*100)/100,r1=v=>Math.round(v*10)/10;
-const OK_ITEM={skis:['std','lost'],jacket:['std','apex'],pants:['std','ridge'],boots:['std','trail']};
+const OK_ITEM={skis:['std','lost','board'],jacket:['std','apex'],pants:['std','ridge'],boots:['std','trail']};
 const okItem=(slot,v)=>OK_ITEM[slot].indexOf(v)>=0?v:'std';
 const fin=(v,lo,hi,d)=>{v=+v;return Number.isFinite(v)?clamp(v,lo,hi):d;};
 const sanitizeRoom=t=>{t=String(t||'').toLowerCase().replace(/[^a-z0-9_.-]+/g,'-').replace(/-{2,}/g,'-').replace(/^[^a-z0-9]+|[^a-z0-9]+$/g,'').slice(0,48).replace(/[^a-z0-9]+$/,'');return t||'snowchasers';};
@@ -119,7 +119,7 @@ function updateRemotes(dt){
     s.visFlip+=(pr.visFlip-s.visFlip)*k;s.visSpin+=(pr.visSpin-s.visSpin)*k;
     s.crash=pr.crash?1:0;s.crashT=pr.crash?s.crashT+dt:0;s.grab=pr.grab;s.sw=pr.sw;s.walk=pr.walk;
     const dist=Math.hypot(s.x-cp.x,s.y-cp.y,s.z-cp.z);
-    const vis=pr.mode!=='t'&&dist<300;
+    const vis=pr.mode!=='t'&&dist<300&&mountainOfSeed(pr.sd)===MOUNTAIN;   /* riders on another mountain are not drawn here */
     R.group.visible=vis;R.shadowWrap.visible=vis;
     if(!vis){if(e.tag)e.tag.visible=false;return;}
     const sp=poseRider(R,s,dt);

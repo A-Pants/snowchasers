@@ -2,13 +2,14 @@
    and the animated map that reveals the Lost Line once all four are found. */
 'use strict';
 /* ================= map fragments (positions only; world.js draws them and keeps trees away from them) ================= */
-/* each fragment: name and subtitle for the journal, where it floats, and rad, how close you must get to pick it up. got becomes true once found. */
-const FR=[
+/* each fragment: name and subtitle for the journal, where it floats, and rad, how close you must get to pick it up. got becomes true once found.
+   Fragments and the quest journal belong to the tutorial; Earth mountains keep their secrets hidden, so FR is empty there. */
+const FR=TUTORIAL?[
   {name:'The Outpost',sub:'Abandoned weather station',x:PADS[0].x,z:PADS[0].z+9,y:PADS[0].h+2.5,rad:6},
   {name:'The Edge',sub:'Cliff jump, bring speed',x:JUMPS[0].x,z:JUMPS[0].z+10,y:H(JUMPS[0].x,JUMPS[0].z)+0.6,rad:7},
   {name:'The Shelter',sub:'Cabin hidden in the forest',x:PADS[1].x+7,z:PADS[1].z,y:PADS[1].h+2.5,rad:6},
   {name:'The Unknown',sub:'Frozen and hard to reach',x:PADS[2].x-1,z:PADS[2].z,y:PADS[2].h+2.2,rad:6}
-];
+]:[];
 FR.forEach(f=>{f.got=false;});
 
 /* ================= quest journal ================= */
@@ -17,7 +18,8 @@ const jrows=$('jrows');
 /* fragment numbers drawn on the reveal map */
 const ROMAN=['I','II','III','IV'];
 function jsec(t){const d=document.createElement('div');d.className='jsec';d.textContent=t;jrows.appendChild(d);}
-jsec('Map fragments');
+if(!TUTORIAL)$('wrapJournal').classList.add('hidden');
+else jsec('Map fragments');
 FR.forEach((f,i)=>{
   const r=document.createElement('div');r.className='jrow';r.id='jr'+i;
   r.innerHTML='<div class="gem"></div><div class="nm">'+f.name+'<span>'+f.sub+'</span></div><div class="dist"><span class="arr">&#9650;</span><span class="d">-</span></div>';
@@ -30,8 +32,8 @@ const GQ=[
   {id:'q2',name:'Keep the style coming',sub:'There is more to earn.',done:()=>!!state.have.ridge},
   {id:'q3',name:'Race the Lost Line',sub:'Find all four map fragments first.',done:()=>!!state.have.lost}
 ];
-jsec('Gear quests');
-GQ.forEach(q=>{
+if(TUTORIAL)jsec('Gear quests');
+if(TUTORIAL)GQ.forEach(q=>{
   const r=document.createElement('div');r.className='jrow';r.id=q.id;
   r.innerHTML='<div class="box"></div><div class="nm">'+q.name+'<span>'+q.sub+'</span></div>';
   jrows.appendChild(r);
@@ -39,6 +41,7 @@ GQ.forEach(q=>{
 /* about 7 times a second (not every frame): tick off finished quests, update the count, and point an arrow and distance at each fragment */
 let jAcc=0;
 function updateJournal(dt){
+  if(!TUTORIAL)return;
   jAcc+=dt;if(jAcc<0.15)return;jAcc=0;
   let qd=0;GQ.forEach(q=>{const d=q.done();if(d)qd++;$(q.id).classList.toggle('done',d);});
   $('jcount').textContent=(state.count+qd)+'/'+(4+GQ.length);

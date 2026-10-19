@@ -7,7 +7,8 @@ const GEAR_AT={apex:10000,ridge:25000};
 /* every item in each slot. 'std' is what you start with; lock says how to earn the others. */
 const ITEMS={
   skis:[{id:'std',name:'Standard skis',stat:'Balanced.'},
-        {id:'lost',name:'Lost Line skis',stat:'More speed, tighter turns and +35% trick score, but landings are unforgiving.',lock:'Finish the Lost Line race.'}],
+        {id:'lost',name:'Lost Line skis',stat:'More speed, tighter turns and +35% trick score, but landings are unforgiving.',lock:'Finish the Lost Line race.'},
+        {id:'board',name:'The Tahoe Legend',rarity:'legendary',hidden:true,stat:'Legendary snowboard. Spins 20% faster and +25% trick score, steadier landings, but slow to push on flat ground.'}],
   jacket:[{id:'std',name:'Trail jacket',stat:'Balanced.'},
         {id:'apex',name:'Apex Shell',stat:'+15% trick score, a little more drag from the hood.',lock:'Land tricks and build up your style.'}],
   pants:[{id:'std',name:'Trail pants',stat:'Balanced.'},
@@ -16,7 +17,7 @@ const ITEMS={
         {id:'trail',name:'Trailblazer boots',stat:'Stronger push on flat ground and softer landings, slightly slower to turn.',lock:'Ski down to the base lodge.'}]
 };
 /* the slots in the order the Gear panel shows them: [id, label] */
-const SLOTS=[['skis','Skis'],['jacket','Jacket'],['pants','Pants'],['boots','Boots']];
+const SLOTS=[['skis','Skis / board'],['jacket','Jacket'],['pants','Pants'],['boots','Boots']];
 /* the colour choices for each slot, the material the colour paints, and the current colour */
 const PALETTE={
   skis:{list:[0x2f8fe0,0xff5a7a,0xffd27a,0x7dff9a,0xf2f7fb,0xb07bff],cur:0x2f8fe0},
@@ -41,14 +42,15 @@ function currentLook(){const g=state.gear;return {skis:g.skis,jacket:g.jacket,pa
 function applyGear(){
   const g=state.gear;state.skis=g.skis;
   setRiderLook(RIDER,currentLook());
-  const rid=g.pants==='ridge',tb=g.boots==='trail',lost=g.skis==='lost';
+  const rid=g.pants==='ridge',tb=g.boots==='trail',lost=g.skis==='lost',board=g.skis==='board';
   /* each item trades something for something, and appearance never changes performance */
-  let drag=1,turn=1,tolM=1,style=1,push=1;
+  let drag=1,turn=1,tolM=1,style=1,push=1,spin=1;
   if(lost){drag*=0.9;turn*=1.12;tolM*=0.7;style*=1.35;}
+  if(board){turn*=1.06;tolM*=1.15;style*=1.25;push*=0.6;spin*=1.2;}
   if(g.jacket==='apex'){style*=1.15;drag*=1.03;}
   if(rid){turn*=1.08;drag*=1.03;}
   if(tb){push*=1.35;tolM*=1.1;turn*=0.97;}
-  SKI.drag=drag;SKI.turn=turn;SKI.tol=0.6*tolM;SKI.style=style;SKI.push=push;SKI.hop=1;
+  SKI.drag=drag;SKI.turn=turn;SKI.tol=0.6*tolM;SKI.style=style;SKI.push=push;SKI.hop=1;SKI.spin=spin;
   SKI.armor=0;   /* future armor items raise this (0 to 1) to cut the chance that a hit wipes you out */
   refreshGear();saveSoon();
 }
@@ -87,11 +89,12 @@ function refreshGear(){
       b.classList.toggle('on',state.gear[slot]===it.id);
       b.classList.toggle('locked',!have);
       b.classList.toggle('new',!!newItems[it.id]);
+      b.classList.toggle('hidden',!!it.hidden&&!have);   /* hidden items stay secret until found */
     });
     ui.sw.forEach(x=>x[0].classList.toggle('on',x[1]===PALETTE[slot].cur));
     const eq=ITEMS[slot].find(i=>i.id===state.gear[slot]);
     let html=eq.stat;
-    const locked=ITEMS[slot].find(i=>!haveItem(i.id));
+    const locked=ITEMS[slot].find(i=>!haveItem(i.id)&&!i.hidden);
     if(locked){
       html+='<br><b>Locked:</b> '+locked.lock;
     }
@@ -110,7 +113,16 @@ function grantItem(slot,id,defColor){
   return true;
 }
 /* after every trick: hand out the style rewards once the totals are reached */
+/* walking or riding into the hidden board cache at Lake Tahoe */
+function findBoard(){
+  if(!grantItem('skis','board'))return;
+  if(boardCache)boardCache.visible=false;
+  sfx('collect');saveSoon();
+  queueUnlock({legend:true,kick:'Legendary find',slot:'New snowboard',icon:'board',title:'The Tahoe Legend',
+    body:'A board someone left in the granite years ago, still waxed. It is already strapped on. Swap back to skis any time in Gear.',stat:ITEMS.skis[2].stat});
+}
 function checkStyleUnlocks(){
+  if(!TUTORIAL)return;   /* these style rewards belong to the tutorial */
   if(state.style>=GEAR_AT.apex&&grantItem('jacket','apex',0x19b4c9))queueUnlock({kick:'You hit '+fmtN(GEAR_AT.apex)+' style',slot:'New jacket',icon:'jacket',title:'Apex Shell',body:'Hood up, yoke on. It is already equipped.',stat:ITEMS.jacket[1].stat});
   if(state.style>=GEAR_AT.ridge&&grantItem('pants','ridge',0x3a4a2f))queueUnlock({kick:'You hit '+fmtN(GEAR_AT.ridge)+' style',slot:'New pants',icon:'pants',title:'Ridge pants',body:'Baggy, loud and ready to carve. They are already on.',stat:ITEMS.pants[1].stat});
 }
@@ -123,6 +135,7 @@ function showUnlock(u){
   sfx('unlock');
   $('uKick').textContent=u.kick;$('uIcon').innerHTML=ico(u.icon);$('uSlot').textContent=u.slot;
   $('uTitle').textContent=u.title;$('uBody').textContent=u.body;$('uStat').textContent=u.stat;
+  $('unlock').classList.toggle('legend',!!u.legend);
   $('unlock').classList.remove('hidden');
   try{$('uOk').focus();}catch(err){}
 }

@@ -12,12 +12,13 @@ function readSaveRaw(){try{const o=JSON.parse(store.get(SAVE_KEY)||'null');retur
 /* save unlocks, gear, colours, style, fragments, options, and the best times and ghosts for this seed */
 function saveNow(){
   try{
-    const old=readSaveRaw(),pbs=(old&&old.pbs&&typeof old.pbs==='object'&&!Array.isArray(old.pbs))?old.pbs:{};
+    const old=readSaveRaw(),keepFrags=(old&&Array.isArray(old.frags))?old.frags:[],pbs=(old&&old.pbs&&typeof old.pbs==='object'&&!Array.isArray(old.pbs))?old.pbs:{};
     pbs[SEED_ID]={best:state.best,runBest:state.runBest,gl:GH.ll,gd:GH.ds};
     store.set(SAVE_KEY,JSON.stringify({v:1,have:state.have,gear:state.gear,
       pal:{jacket:PALETTE.jacket.cur,pants:PALETTE.pants.cur,boots:PALETTE.boots.cur,skis:PALETTE.skis.cur},
-      style:Math.round(state.style),frags:FR.map(f=>!!f.got),
-      opt:{music:opt.music,sfx:opt.sfx,muted:muted,ghosts:opt.ghosts,ghostSrc:opt.ghostSrc},pbs:pbs,at:Date.now()}));
+      style:Math.round(state.style),frags:TUTORIAL?FR.map(f=>!!f.got):keepFrags,   /* other mountains leave the tutorial's fragments as they were */
+     
+      clues:state.clues,opt:{music:opt.music,sfx:opt.sfx,muted:muted,ghosts:opt.ghosts,ghostSrc:opt.ghostSrc},pbs:pbs,at:Date.now()}));
   }catch(err){}
 }
 /* saveSoon waits 0.7 s so a burst of changes makes one save; leaving the page saves straight away */
@@ -31,13 +32,14 @@ function loadSave(){
   const o=readSaveRaw();if(!o)return false;
   try{
     const hv=(o.have&&typeof o.have==='object')?o.have:{};
-    ['lost','apex','ridge','trail'].forEach(k=>{state.have[k]=hv[k]===true;});
+    ['lost','apex','ridge','trail','board'].forEach(k=>{state.have[k]=hv[k]===true;});
     state.unlocked=state.have.lost;
     SLOTS.forEach(sl=>{const id=o.gear&&o.gear[sl[0]];if(OK_ITEM[sl[0]].indexOf(id)>=0&&(id==='std'||state.have[id]))state.gear[sl[0]]=id;});
     ['jacket','pants','boots','skis'].forEach(k=>{const v=o.pal&&+o.pal[k];if(Number.isFinite(v)&&PALETTE[k].list.indexOf(v)>=0){PALETTE[k].cur=v;if(k==='skis')accent=v;}});
     state.style=Math.max(0,+o.style||0);
     if(Array.isArray(o.frags))FR.forEach((f,i)=>{f.got=o.frags[i]===true;if(f.got)fragObjs[i].g.visible=false;});
     state.count=FR.filter(f=>f.got).length;
+    if(o.clues&&typeof o.clues==='object')state.clues={boardNote:o.clues.boardNote===true};
     if(o.opt){
       if(Number.isFinite(+o.opt.music))opt.music=clamp(+o.opt.music,0,1);
       if(Number.isFinite(+o.opt.sfx))opt.sfx=clamp(+o.opt.sfx,0,1);
@@ -72,11 +74,12 @@ function armReset(btn){
 /* put everything back to a fresh start, in place, so the demo can be run again */
 function resetProgress(){
   clearTimeout(saveTimer);store.del(SAVE_KEY);
-  state.have={lost:false,apex:false,ridge:false,trail:false};state.unlocked=false;
+  state.have={lost:false,apex:false,ridge:false,trail:false,board:false};state.unlocked=false;
+  if(boardCache)boardCache.visible=true;
   state.gear={skis:'std',jacket:'std',pants:'std',boots:'std'};
   ['jacket','pants','boots','skis'].forEach(k=>{PALETTE[k].cur=PAL_DEFAULT[k];});accent=PAL_DEFAULT.skis;
   state.style=0;state.mult=1;state.comboT=0;state.best=null;state.runBest=null;state.count=0;state.wipes=0;
-  GH.ll=null;GH.ds=null;
+  GH.ll=null;GH.ds=null;state.clues={};
   FR.forEach((f,i)=>{f.got=false;});
   for(const k in newItems)delete newItems[k];
   unlockQ.length=0;closeUnlock(false);
@@ -153,7 +156,7 @@ function onBaseReached(){
     saveSoon();
     $('timer').innerHTML=fmt(t)+'<small>'+(nb?'New best descent':'Run complete')+'</small>';
   }
-  const gotBoots=grantItem('boots','trail',0xff9f1c);
+  const gotBoots=TUTORIAL&&grantItem('boots','trail',0xff9f1c);   /* the Trailblazer boots are a tutorial reward */
   if(gotBoots){
     toast(had?'Down in '+fmt(t):'Base lodge reached','',2400);
     queueUnlock({kick:had?'You made it down in '+fmt(t):'You made it to the base lodge',slot:'New boots',icon:'boot',title:'Trailblazer boots',body:'Laced up and already on your feet.',stat:ITEMS.boots[1].stat});
@@ -271,13 +274,13 @@ function readInput(){
 const liftBtn=$('liftBtn');let liftHold=0,liftLock=false,liftBtnDown=false;
 liftBtn.addEventListener('pointerdown',e=>{if(e.preventDefault)e.preventDefault();liftBtnDown=true;});
 ['pointerup','pointerleave','pointercancel'].forEach(t=>liftBtn.addEventListener(t,()=>{liftBtnDown=false;}));
-$('lostBtn').addEventListener('click',()=>{if(state.mode==='explore'&&(state.unlocked||state.count>=4))beginCountdown();});
+$('lostBtn').addEventListener('click',()=>{if(TUTORIAL&&state.mode==='explore'&&(state.unlocked||state.count>=4))beginCountdown();});
 /* every frame: show the right buttons for the current screen, and fill the lift button while it is held */
 function updateLift(dt){
   const active=state.mode==='explore'||state.mode==='race'||state.mode==='countdown';
   liftBtn.classList.toggle('hidden',!active);
   $('boardBtn').classList.toggle('hidden',state.mode==='title'||state.mode==='reveal'||state.mode==='results'||state.mode==='countdown');
-  $('lostBtn').classList.toggle('hidden',!(state.mode==='explore'&&(state.unlocked||state.count>=4)));
+  $('lostBtn').classList.toggle('hidden',!(TUTORIAL&&state.mode==='explore'&&(state.unlocked||state.count>=4)));
   const holding=active&&(liftBtnDown||!!keys.Backspace||gpSel);
   if(holding&&!liftLock){
     liftHold+=dt;
@@ -289,7 +292,7 @@ function updateLift(dt){
 /* ================= keyboard shortcuts ================= */
 /* F or "Skip to the finale": mark all four fragments found and start the map reveal */
 function skipToFinale(){
-  if(state.mode!=='explore'||state.count>=4)return;
+  if(!TUTORIAL||state.mode!=='explore'||state.count>=4)return;
   FR.forEach((f,i)=>{if(!f.got){f.got=true;state.count++;fragObjs[i].g.visible=false;}});
   toast('All four fragments','Skipping ahead to the finale',1800);
   setTimeout(()=>{if(state.mode==='explore')startReveal();},1000);
@@ -302,6 +305,7 @@ function down(e){
   if(['KeyW','KeyA','KeyS','KeyD','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].indexOf(e.code)>=0)document.body.classList.remove('touch');
   keys[e.code]=true;
   if(e.repeat)return;
+  if(worldsOpen()){if(e.code==='Escape')closeWorlds();return;}   /* the world map takes over the keyboard while it is open */
   if(unlockOpen()){if(e.code==='Enter'||e.code==='Space'||e.code==='Escape')closeUnlock(false);else if(e.code==='KeyG')closeUnlock(true);return;}
   if(state.mode==='title'&&(e.code==='Enter'||e.code==='Space')){startGame();return;}
   if(state.mode==='reveal'&&revealDone&&(e.code==='Enter'||e.code==='Space')){$('mapBtn').click();return;}
@@ -313,7 +317,7 @@ function down(e){
   if(e.code==='KeyJ')joinInvite();
   if(e.code==='Escape'){if(gearOpen()||panelsOpen()){closeGear();closePanels();}else toggleMenu();}
   if(e.code==='KeyM'){muted=!muted;applyVolumes();callout(muted?'Sound off':'Sound on',900);}
-  if(e.code==='KeyL'&&state.mode==='explore'&&(state.unlocked||state.count>=4))beginCountdown();
+  if(e.code==='KeyL'&&TUTORIAL&&state.mode==='explore'&&(state.unlocked||state.count>=4))beginCountdown();
   if(e.code==='KeyF')skipToFinale();
   if(e.code==='KeyK'&&(state.mode==='explore'||state.mode==='race')){state.style+=5000;callout('+5,000 style (demo shortcut)',900);checkStyleUnlocks();}
 }
@@ -328,13 +332,19 @@ function startGame(){
   if(net.ready)joinRoom(sanitizeRoom($('roomCode').value));
   if(audio&&audio.ctx.state==='suspended')audio.ctx.resume();
   fragGroup.visible=true;snapCamera();state.hintT=0;
-  toast('Find the four map fragments','Look for the golden beams. Double-tap any panel to shrink it to an icon.',4600);
+  if(TUTORIAL)toast('Find the four map fragments','Look for the golden beams. Double-tap any panel to shrink it to an icon.',4600);
+  else toast(MTN.name,'Ski down to the lake. Hold Backspace (or the helicopter button) to ride back up.',4600);
 }
 $('startBtn').addEventListener('click',startGame);
 $('skipBtn').addEventListener('click',()=>{startGame();skipToFinale();});
 
 /* last: when the previous frame ran. tAnim: a clock for idle animations. lastCountN: the last countdown number that beeped. */
-let last=performance.now(),tAnim=0,lastCountN=99;
+let last=performance.now(),tAnim=0,lastCountN=99,hutNoteShown=false,noticeSeen=false,senseBand=0,senseOp=0;
+/* read the note about the hidden board: show it, remember it, and mark the search area on the minimap */
+function readBoardNote(where){
+  toast(where,'"Left my old board in the granite under the dead pine with the red rag. Ski the right side of the run, well past the warming hut, and look for the glint above the trees." R.',9000);
+  if(!state.clues.boardNote){state.clues.boardNote=true;saveSoon();setTimeout(()=>callout('Search area marked on your map',1800),2200);}
+}
 /* react to what the physics reported this frame: sounds, snow spray, a camera dip, trick names and scores */
 function processEvents(ev){
   for(const e of ev){
@@ -366,13 +376,13 @@ function processEvents(ev){
 }
 /* the game logic for one frame. dt is the seconds since the last frame. */
 function update(dt){
-  tAnim+=dt;
+  tAnim+=dt;senseOp=0;
   if(outpostSpin)outpostSpin.rotation.y+=dt*2.2;
   fragObjs.forEach((o,i)=>{if(!FR[i].got){o.paper.rotation.y+=dt*1.6;o.paper.position.y=Math.sin(tAnim*2+i)*0.25;o.halo.rotation.z+=dt;o.beam.material.opacity=0.24+0.1*Math.sin(tAnim*2.4+i);}});
   const mode=state.mode;
   let inp=readInput();
   if(mode==='explore')pumpUnlock();
-  const live=(mode==='explore'||mode==='race')&&!gearOpen()&&!unlockOpen();
+  const live=(mode==='explore'||mode==='race')&&!gearOpen()&&!unlockOpen()&&!worldsOpen();
   if(!live)inp={lx:0,ly:0,rx:0,ry:0};
   updateLift(dt);netTick(dt);updateWalkUI();
   if(live){
@@ -384,13 +394,30 @@ function update(dt){
     processEvents(ev);
     if(mode==='explore'){
       /* exploring: pick up nearby fragments, start the descent timer once you move, and check the finish line */
-      for(let i=0;i<4;i++){const f=FR[i];if(f.got)continue;
+      for(let i=0;i<FR.length;i++){const f=FR[i];if(f.got)continue;
         const d=Math.hypot(P.x-f.x,P.y+1-f.y,P.z-f.z);if(d<f.rad+(P.walk?5:0)){collect(i);}}
       if(state.runArmed&&!P.walk&&Math.hypot(P.vx,P.vz)>2){state.runOn=true;state.runArmed=false;state.runT=0;recStart('d');ghostStart('d');}
       if(REC.on&&REC.kind==='d'&&!state.runOn)recAbort();
       if(state.runOn){state.runT+=dt;$('timer').innerHTML=fmt(state.runT)+'<small>Descent time'+ghostSuffix()+'</small>';}
       if(pz<FINISH_Z&&P.z>=FINISH_Z){if(P.walk)toast('Base lodge reached','Press E to put your skis back on.',2000);else onBaseReached();}
       state.hintT+=dt;if(state.hintT>16)$('hints').classList.add('fade');
+      if(boardRag)boardRag.rotation.x=0.25*Math.sin(tAnim*3.1)+0.1*Math.sin(tAnim*7.3);   /* the rag flaps in the wind */
+      if(boardCache&&boardCache.visible){
+        boardCache.userData.glow.intensity=0.7+0.4*Math.sin(tAnim*2);   /* the glow breathes slowly */
+        const d=Math.hypot(P.x-BOARD_SPOT.x,P.z-BOARD_SPOT.z);
+        if(Math.hypot(P.x-NOTICE_SPOT.x,P.z-NOTICE_SPOT.z)<18)noticeSeen=true;   /* you passed the notice board */
+        /* the glint twinkles and grows with distance so it shows from the run, and fades out once you are close */
+        boardGlint.material.opacity=(0.55+0.45*Math.sin(tAnim*5)*Math.sin(tAnim*1.7))*smooth(18,45,d);
+        const gs=clamp(3+d*0.035,3,9);boardGlint.scale.set(gs,gs,1);
+        /* getting warmer: a chime each time you get closer (60 m, 35 m, 15 m) and a golden shimmer round the screen */
+        const band=d<15?3:(d<35?2:(d<60?1:0));
+        if(band>senseBand)sfx('sense',band);
+        senseBand=band;senseOp=(1-smooth(12,60,d))*(0.42+0.13*Math.sin(tAnim*3));
+        if(d<(P.walk?4.5:3.2))findBoard();
+        /* the clue: a note on the notice board at the top, and the same note on the warming hut door for anyone who skied past it */
+        else if(!hutNoteShown&&noticeSeen&&state.hintT>4.8){hutNoteShown=true;readBoardNote('A note on the notice board');}   /* shown once the welcome message has gone */
+        else if(!hutNoteShown&&Math.hypot(P.x-PADS[1].x,P.z-PADS[1].z)<10){hutNoteShown=true;readBoardNote('A note pinned to the hut door');}
+      }
     } else {
       /* racing: run the clock, check each gate as you pass it, and finish at the line */
       state.raceT+=dt;
@@ -418,6 +445,7 @@ function update(dt){
     { const cn=Math.ceil(state.cd);if(cn!==lastCountN){lastCountN=cn;if(cn>=1&&cn<=3)sfx('count',cn);} }
     if(state.cd<=0){state.mode='race';state.raceT=0;$('count').textContent='';callout('Go',700);sfx('count',0);recStart('l');}
   }
+  $('sense').style.opacity=senseOp.toFixed(2);
   /* combo */
   if(state.comboT>0){state.comboT-=dt;if(state.comboT<=0)state.mult=1;}
   if(Math.round(state.style)!==styleShown){
@@ -425,7 +453,8 @@ function update(dt){
     $('styleMini').textContent=styleShown>=1000?(styleShown/1000).toFixed(styleShown>=10000?0:1)+'k':String(styleShown);
     /* the meter shows how close the next reward is, but not what it is or the exact target: that is the surprise */
     const nx=$('styleNext');
-    if(!state.have.apex){nx.style.display='block';$('styleBar').style.width=Math.min(100,styleShown/GEAR_AT.apex*100)+'%';$('styleNextTxt').textContent='Next gear unlock: ???';}
+    if(!TUTORIAL)nx.style.display='none';
+    else if(!state.have.apex){nx.style.display='block';$('styleBar').style.width=Math.min(100,styleShown/GEAR_AT.apex*100)+'%';$('styleNextTxt').textContent='Next gear unlock: ???';}
     else if(!state.have.ridge){nx.style.display='block';$('styleBar').style.width=Math.min(100,(styleShown-GEAR_AT.apex)/(GEAR_AT.ridge-GEAR_AT.apex)*100)+'%';$('styleNextTxt').textContent='Next gear unlock: ???';}
     else nx.style.display='none';
   }
@@ -469,6 +498,7 @@ resize();setupMini();
 placePlayer(0,START_Z,0);snapCamera();
 fragObjs.forEach(o=>{o.g.visible=true;});
 loadSave();
+if(boardCache&&state.have.board)boardCache.visible=false;
 applyGear();refreshTitleSave();saveInfoRefresh();
 camera.position.copy(camPos);camera.lookAt(P.x,P.y+1.8,P.z+7);
 requestAnimationFrame(frame);

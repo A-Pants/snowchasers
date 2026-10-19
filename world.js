@@ -13,8 +13,9 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,dprCap()));
 renderer.setClearColor(0x000000,0);
 /* the scene holds every 3D object; fog fades far-away things into the sky colour */
 const scene=new THREE.Scene();
-scene.fog=new THREE.Fog(0xcfe0ef,90,760);
-const camera=new THREE.PerspectiveCamera(62,1,0.5,1800);
+/* Tahoe sees much further, so the lake and the mountains around it show through the haze */
+scene.fog=TUTORIAL?new THREE.Fog(0xcfe0ef,90,760):new THREE.Fog(0xcfe0ef,600,38000);
+const camera=new THREE.PerspectiveCamera(62,1,TUTORIAL?0.5:1,TUTORIAL?1800:32000);
 /* keep the 3D view the same size as the window */
 function resize(){
   const w=window.innerWidth,h=window.innerHeight;
@@ -34,6 +35,8 @@ const sun=new THREE.DirectionalLight(0xfff1dc,1.1);sun.position.set(160,260,-110
 /* ================= terrain mesh ================= */
 /* build the snow surface as one big mesh of triangles from H(x,z): small squares in the middle where you ski, bigger ones at the edges.
    Each corner gets a colour (bare rock on steep faces and cliff lips, blue shading in hollows), and a small shader adds contour lines. */
+/* bare rock colour: blue-grey in the tutorial, pale Sierra granite at Tahoe */
+const RK=TUTORIAL?[0.45,0.47,0.52]:[0.62,0.6,0.56];
 (function buildTerrain(){
   const xs=[],zs=[];
   for(let x=-480;x<-240;x+=9)xs.push(x);
@@ -62,7 +65,8 @@ const sun=new THREE.DirectionalLight(0xfff1dc,1.1);sun.position.set(160,260,-110
     const tone=0.965+0.035*Math.sin(x*0.31+z*0.17)*Math.sin(z*0.23-x*0.11);
     const shade=1-smooth(0.1,0.5,sl)*0.05;
     const sr=Math.min(1,0.93*tone*shade*(1-0.24*k2)),sg=Math.min(1,0.955*tone*shade*(1-0.17*k2)),sb=Math.min(1,0.985*tone*(1-0.06*k2));
-    col[k]=lerp(sr,0.45,rock);col[k+1]=lerp(sg,0.47,rock);col[k+2]=lerp(sb,0.52,rock);
+    col[k]=lerp(sr,RK[0],rock);col[k+1]=lerp(sg,RK[1],rock);col[k+2]=lerp(sb,RK[2],rock);
+    if(WATER_Y!==null&&y<WATER_Y+1.6){col[k]=0.5;col[k+1]=0.47;col[k+2]=0.41;}   /* wet sand at the lake's edge */
   }
   const idx=new Uint32Array((nx-1)*(nz-1)*6);let n=0;
   for(let j=0;j<nz-1;j++)for(let i=0;i<nx-1;i++){
@@ -120,6 +124,7 @@ function treeFree(x,z,d){
 /* add one tree with a random size, lean and turn, and make it an obstacle */
 function addTree(x,z,s){
   const t={x:x,z:z,s:s,sx:s*(0.84+rng()*0.3),sy:s*(0.88+rng()*0.45),r:rng()*6.28,lx:(rng()-0.5)*0.07,lz:(rng()-0.5)*0.07,gy:H(x,z)};
+  if(!TUTORIAL)t.sy*=1.3;   /* Tahoe's Jeffrey pines grow tall */
   trees.push(t);
   const k=tCell(x,z);let a=tgrid.get(k);if(!a){a=[];tgrid.set(k,a);}a.push([x,z]);
   addObstacle(x,z,0.78*t.sx);
@@ -136,8 +141,8 @@ function blocked(x,z){
   if(z>-20&&z<110&&Math.abs(x)<22)return true;
   if(z>1560)return true;
   for(let i=0;i<JUMPS.length;i++){const k=JUMPS[i];if(Math.abs(x-k.x)<k.w+16&&z>k.z-k.len-8&&z<k.z+75)return true;}
-  for(let i=0;i<PADS.length;i++){const p=PADS[i];if(Math.hypot(x-p.x,z-p.z)<(i===1?17:p.r+9))return true;}
-  if(inShelterGap(x,z))return true;
+  for(let i=0;i<PADS.length;i++){const p=PADS[i];if(Math.hypot(x-p.x,z-p.z)<(i===1?17:(i===3?9:p.r+9)))return true;}   /* pines grow close round the board cache */
+  if(TUTORIAL&&inShelterGap(x,z))return true;
   return false;
 }
 /* a rough bell-curve random number, used to bunch trees toward the middle of a grove */
@@ -147,7 +152,7 @@ const gauss=()=>(rng()+rng()+rng()-1.5)*1.15;
   const seeds=[];let tries=0;
   while(seeds.length<250&&tries<40000){
     tries++;
-    const x=(rng()*2-1)*290,z=30+rng()*1540;
+    const x=(rng()*2-1)*(TUTORIAL?290:440),z=30+rng()*1540;
     const forest=0.5+0.5*Math.sin(x*0.017+z*0.011+2.1)*Math.sin(z*0.0085-x*0.013+0.5);
     const p=smooth(70,430,z)*(0.1+0.9*Math.pow(Math.max(0,forest),1.1));
     if(rng()>p*1.15)continue;
@@ -172,7 +177,7 @@ const gauss=()=>(rng()+rng()+rng()-1.5)*1.15;
   });
   /* 3. a thin scatter of lone trees between groves */
   for(let i=0;i<1300&&trees.length<3400;i++){
-    const x=(rng()*2-1)*295,z=60+rng()*1500;
+    const x=(rng()*2-1)*(TUTORIAL?295:450),z=60+rng()*1500;
     if(rng()>smooth(120,500,z)*0.45)continue;
     if(blocked(x,z))continue;
     grad(x,z,_g);if(Math.hypot(_g.x,_g.z)>0.7)continue;
@@ -180,7 +185,7 @@ const gauss=()=>(rng()+rng()+rng()-1.5)*1.15;
     addTree(x,z,(0.6+rng()*0.6)*(0.62+0.38*smooth(110,520,z)));
   }
   /* 4. dense ring of trees around the hidden shelter */
-  for(let i=0;i<230;i++){
+  for(let i=0;i<(TUTORIAL?230:0);i++){
     const a=rng()*6.283,d=19+rng()*28;
     const x=SH.x+Math.cos(a)*d,z=SH.z+Math.sin(a)*d;
     if(Math.abs(a>3.1416?a-6.283:a)<0.46)continue;
@@ -190,7 +195,7 @@ const gauss=()=>(rng()+rng()+rng()-1.5)*1.15;
   }
   /* rocks */
   let rt=0;
-  while(rocks.length<340&&rt<6000){
+  while(rocks.length<(TUTORIAL?340:520)&&rt<6000){
     rt++;
     const x=(rng()*2-1)*300,z=-250+rng()*1800;
     if(Math.abs(x-lineX(z))<10)continue;
@@ -200,7 +205,7 @@ const gauss=()=>(rng()+rng()+rng()-1.5)*1.15;
     for(let i=0;i<JUMPS.length;i++){const k=JUMPS[i];if(Math.abs(x-k.x)<k.w+14&&z>k.z-k.len-6&&z<k.z+70)bad=true;}
     for(let i=0;i<PADS.length;i++){if(Math.hypot(x-PADS[i].x,z-PADS[i].z)<PADS[i].r+10)bad=true;}
     if(bad)continue;
-    const s=1+rng()*2.4;rocks.push({x:x,z:z,s:s,r:rng()*6.28});addObstacle(x,z,s*0.85);
+    const s=(1+rng()*2.4)*(TUTORIAL?1:1.3);rocks.push({x:x,z:z,s:s,r:rng()*6.28});addObstacle(x,z,s*0.85);
   }
 })();
 
@@ -251,13 +256,13 @@ let treeFadeAttr=null;const treeFade=new Float32Array(trees.length).fill(1);
   const foliageGeo=makeFoliageGeo();
   treeFadeAttr=new THREE.InstancedBufferAttribute(treeFade,1);treeFadeAttr.setUsage(THREE.DynamicDrawUsage);
   trunkGeo.setAttribute('fade',treeFadeAttr);foliageGeo.setAttribute('fade',treeFadeAttr);
-  const trunkMat=M(0x4d3626),foliageMat=new THREE.MeshLambertMaterial({vertexColors:true});
+  const trunkMat=M(TUTORIAL?0x4d3626:0x7a4a30),foliageMat=new THREE.MeshLambertMaterial({vertexColors:true});
   applyFade(trunkMat,'treeTrunk');applyFade(foliageMat,'treeFoliage');
   const pl=(t,d)=>{d.position.set(t.x,t.gy-0.15,t.z);d.scale.set(t.sx,t.sy,t.sx);d.rotation.set(t.lx,t.r,t.lz);};
   inst(trunkGeo,trunkMat,trees,pl);
   inst(foliageGeo,foliageMat,trees,(t,d,i,m)=>{pl(t,d);col.setRGB(0.88+rng()*0.2,0.92+rng()*0.14,0.88+rng()*0.16);m.setColorAt(i,col);}).instanceColor.needsUpdate=true;
   const rg=new THREE.DodecahedronGeometry(1,0);
-  inst(rg,M(0x7b8290),rocks,(r,d)=>{d.position.set(r.x,H(r.x,r.z)+r.s*0.15,r.z);d.scale.set(r.s,r.s*0.72,r.s*0.9);d.rotation.set(0,r.r,0);});
+  inst(rg,M(TUTORIAL?0x7b8290:0xa29d93),rocks,(r,d)=>{d.position.set(r.x,H(r.x,r.z)+r.s*0.15,r.z);d.scale.set(r.s,r.s*0.72,r.s*0.9);d.rotation.set(0,r.r,0);});
 })();
 /* fade out any tree standing between the camera and the skier (and any tree the camera is inside of) */
 function updateTreeFade(dt){
@@ -285,6 +290,7 @@ function updateTreeFade(dt){
    The Outpost (fragment I) is a weather station; outpostSpin is its wind gauge, which main.js spins. */
 let outpostSpin=null;
 (function buildOutpost(){
+  if(!TUTORIAL)return;
   const p=PADS[0],g=new THREE.Group();g.position.set(p.x,p.h,p.z);scene.add(g);
   bx(8,4.2,6,M(0xc9573f),0,2.1,0,g);
   bx(8.8,0.5,6.8,M(0xf4f8fb),0,4.45,0,g);
@@ -306,6 +312,7 @@ let outpostSpin=null;
 })();
 /* The Shelter (fragment III): a cabin with a warm lamp, hidden in a ring of trees */
 (function buildShelter(){
+  if(!TUTORIAL)return;
   const g=new THREE.Group();g.position.set(SH.x,PADS[1].h,SH.z);g.rotation.y=Math.PI/2;scene.add(g);
   bx(6,3,5,M(0x7b5234),0,1.5,0,g);
   const roof=new THREE.Mesh(new THREE.ConeGeometry(4.9,2.2,4),M(0xf1f6fa));roof.rotation.y=Math.PI/4;roof.scale.set(1.12,1,0.98);roof.position.set(0,4.1,0);g.add(roof);
@@ -318,6 +325,7 @@ let outpostSpin=null;
 })();
 /* The Unknown (fragment IV): a dark cave with glowing ice */
 (function buildCave(){
+  if(!TUTORIAL)return;
   const p=PADS[2],g=new THREE.Group();g.position.set(p.x,p.h,p.z);scene.add(g);
   const rock=M(0x636b78),dark=M(0x161f2b);
   bx(3,6,5,rock,0,3,-3.9,g);bx(3,6,5,rock,0,3,3.9,g);
@@ -335,6 +343,7 @@ let outpostSpin=null;
 })();
 /* the lift station at the start, the base lodge and the finish arch */
 (function buildStartAndLodge(){
+  if(!TUTORIAL)return;
   /* lift top station near the start */
   const g=new THREE.Group();g.position.set(-26,H(-26,-8),-8);scene.add(g);
   bx(7,4,5,M(0x56606b),0,2,0,g);bx(7.8,0.5,5.8,M(0xf4f8fb),0,4.25,0,g);
@@ -357,6 +366,221 @@ let outpostSpin=null;
   const ban=new THREE.Mesh(new THREE.PlaneGeometry(26,6.5),new THREE.MeshBasicMaterial({map:tex,side:THREE.DoubleSide,fog:false}));
   ban.position.set(fx,H(fx,fz)+10.5,fz);fa.add(ban);
   addObstacle(fx-13,fz,0.7);addObstacle(fx+13,fz,0.7);
+})();
+
+/* ================= Lake Tahoe scenery ================= */
+/* a sign drawn on a canvas: white text on dark blue with a coloured border */
+function signTex(text,edge){
+  const cv=document.createElement('canvas');cv.width=512;cv.height=128;const cx=cv.getContext('2d');
+  cx.fillStyle='#0d2238';cx.fillRect(0,0,512,128);cx.strokeStyle=edge;cx.lineWidth=8;cx.strokeRect(6,6,500,116);
+  cx.fillStyle='#ffffff';cx.font='700 64px "Barlow Condensed",Arial Narrow,Arial';cx.textAlign='center';cx.textBaseline='middle';cx.fillText(text,256,68);
+  return new THREE.CanvasTexture(cv);
+}
+/* a sheet of triangles over the grid xs by zs; f(x,z,o) sets the height o.y and the colour o.r,o.g,o.b at each corner */
+function gridMesh(xs,zs,f,mat){
+  const nx=xs.length,nz=zs.length,pos=new Float32Array(nx*nz*3),col=new Float32Array(nx*nz*3),o={y:0,r:1,g:1,b:1};
+  for(let j=0;j<nz;j++)for(let i=0;i<nx;i++){
+    const k=(j*nx+i)*3;f(xs[i],zs[j],o);
+    pos[k]=xs[i];pos[k+1]=o.y;pos[k+2]=zs[j];col[k]=o.r;col[k+1]=o.g;col[k+2]=o.b;
+  }
+  const idx=[];for(let j=0;j<nz-1;j++)for(let i=0;i<nx-1;i++){const a=j*nx+i,b=a+1,c=a+nx,d=c+1;idx.push(a,c,b,b,c,d);}
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(pos,3));geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+  geo.setIndex(idx);geo.computeVertexNormals();
+  const m=new THREE.Mesh(geo,mat);m.frustumCulled=false;scene.add(m);return m;
+}
+const steps=(a,b,s)=>{const out=[];for(let v=a;v<b;v+=s)out.push(v);return out;};
+/* the hidden board cache at Tahoe. main.js checks how close you are to BOARD_SPOT, and hides boardCache once the board is found. */
+let boardCache=null,boardRag=null,boardGlint=null;
+const BOARD_SPOT=TUTORIAL?null:{x:PADS[3].x,z:PADS[3].z};
+/* the notice board by the summit station, where the first clue is pinned */
+const NOTICE_SPOT=TUTORIAL?null:{x:7,z:-172};
+/* a soft round glow drawn on a canvas, used for the glint above the cache */
+function glowTex(){
+  const cv=document.createElement('canvas');cv.width=cv.height=64;const c=cv.getContext('2d');
+  const g=c.createRadialGradient(32,32,0,32,32,32);g.addColorStop(0,'rgba(255,240,200,1)');g.addColorStop(0.25,'rgba(255,200,90,.8)');g.addColorStop(1,'rgba(255,170,60,0)');
+  c.fillStyle=g;c.fillRect(0,0,64,64);return new THREE.CanvasTexture(cv);
+}
+/* ================= the Lake Tahoe basin =================
+   You ski down the east shore (like at Heavenly) looking west across the water. The lake runs far off to the right (north),
+   the south shore is nearer on the left, and across the water are the granite peaks of Desolation Wilderness, Mount Tallac,
+   and Emerald Bay with Fannette Island. Distances are squeezed to about half of the real ones, so it all fits in view. */
+/* how far a point is from the middle of the lake: under 1 is water, 1 is the shore, above 1 is land */
+function lakeS(x,z){
+  const dx=(x+3000)/10000,dz=(z-5050)/3400;
+  return Math.pow(Math.abs(dx),3)+Math.pow(Math.abs(dz),2.4)+0.05*Math.sin(x*0.0011+1)*Math.sin(z*0.0013)+0.03*Math.sin(x*0.0031+z*0.0023);   /* the sines wiggle the shore into coves and points */
+}
+/* Emerald Bay: a long narrow inlet off the far-left shore with a tight mouth. 1 inside the bay, 0 outside. */
+function bayIn(x,z){
+  const ax=5600,az=7000,vx=2400,vz=350,t=clamp(((x-ax)*vx+(z-az)*vz)/(vx*vx+vz*vz),0,1);
+  const d=Math.hypot(ax+vx*t-x,az+vz*t-z),r=lerp(170,420,smooth(0,0.35,t))*(1-0.3*smooth(0.85,1,t));
+  return 1-smooth(r*0.75,r,d);
+}
+/* ridged noise from 0 to 1: sharp crests where the sine waves cross zero, like eroded granite ridges */
+const RIDGE_DIR=[[1,0],[0.8,0.6],[-0.6,0.8],[0.28,-0.96],[-0.96,-0.28]];
+function ridged(x,z){
+  let v=0,a=0.5,f=0.0009,amp=0;
+  for(let i=0;i<5;i++){
+    const r=RIDGE_DIR[i],u=(x*r[0]+z*r[1])*f,w=(z*r[0]-x*r[1])*f;
+    v+=a*(1-Math.abs(Math.sin(u+i*1.7)*Math.sin(w*1.3+i*2.3)));amp+=a;a*=0.5;f*=2.03;
+  }
+  v/=amp;return v*v;
+}
+/* the height of the land and lake bed anywhere outside the ski area */
+function farH(x,z){
+  const ax=Math.abs(x);
+  if(ax<480&&z<1760)return WATER_Y-300;   /* tucked under the ski area, which draws itself */
+  const s=lakeS(x,z),r=ridged(x,z);
+  let h;
+  if(s<1)h=WATER_Y-8-300*smooth(1,0.8,s);   /* the lake bed: shallow by the shore, then deep */
+  else{
+    const rise=smooth(1,1.9,s);
+    let A=420+620*smooth(8800,10500,z)*smooth(-4000,1000,x)   /* the Desolation crest across the water, highest on the left */
+      -180*smooth(-5000,-11000,x)                              /* lower, rounder hills far off to the north */
+      +250*smooth(-400,-2500,z);                               /* the range behind our summit */
+    h=WATER_Y+4+rise*A*(0.45+0.75*r);
+    h+=rise*900*(0.65+0.35*r)*Math.exp(-(Math.pow(x-7600,2)+Math.pow(z-8700,2))/562500);   /* Mount Tallac, standing above Emerald Bay, with rough ridges */
+  }
+  const bay=bayIn(x,z);if(bay>0)h=lerp(h,WATER_Y-40,bay);
+  /* next to the ski area, carry on its slopes so there is no seam, then blend into the wider basin */
+  const dx=Math.max(0,ax-480),dz=Math.max(0,-320-z,z-1760),dp=Math.hypot(dx,dz);
+  if(dp<2600){
+    const hw=tahoeH(clamp(x,-480,480),z)+0.25*dx;
+    const w=Math.max(smooth(500,2600,dp),(1-smooth(1,1.25,s))*smooth(40,400,dp));
+    h=lerp(hw,h,w);
+  }
+  return h;
+}
+/* a tiny seeded random just for the scenery, so it never changes the course */
+const srng=(function(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};})(20240917);
+function buildBasin(){
+  /* the land: one big sheet, finer near the ski area and coarser far away */
+  const xs=[].concat(steps(-16000,-4000,400),steps(-4000,-480,80),steps(-480,480,80),steps(480,4000,80),steps(4000,10000,150),steps(10000,14001,400));
+  const zs=[].concat(steps(-6000,-1500,400),steps(-1500,1760,80),steps(1760,4000,80),steps(4000,9000,120),steps(9000,16001,300));
+  const nx=xs.length,nz=zs.length,pos=new Float32Array(nx*nz*3);
+  for(let j=0;j<nz;j++)for(let i=0;i<nx;i++){const k=(j*nx+i)*3;pos[k]=xs[i];pos[k+1]=farH(xs[i],zs[j]);pos[k+2]=zs[j];}
+  const idx=[];for(let j=0;j<nz-1;j++)for(let i=0;i<nx-1;i++){const a=j*nx+i,b=a+1,c=a+nx,d=c+1;idx.push(a,c,b,b,c,d);}
+  const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(pos,3));geo.setIndex(idx);geo.computeVertexNormals();
+  /* colour each corner: sand at the waterline, dark winter forest on the lower slopes, granite on steep faces, snow up high */
+  const nrm=geo.attributes.normal,col=new Float32Array(nx*nz*3);
+  for(let n=0;n<nx*nz;n++){
+    const x=pos[n*3],y=pos[n*3+1],z=pos[n*3+2],a=y-WATER_Y,sl=1-nrm.getY(n);
+    const fn=clamp(0.55+0.45*Math.sin(x*0.004+z*0.003)*Math.sin(z*0.0051-x*0.0027)+0.25*Math.sin(x*0.013-z*0.011),0,1);
+    const forest=Math.min(1,0.4+fn)*(1-smooth(620,900,a))*(1-smooth(0.5,0.8,sl))*smooth(3,14,a);   /* pines grow up to about 800 m above the lake */
+    const rock=smooth(0.5,0.8,sl);
+    let r=0.93,g=0.95,b=0.98;                                   /* snow */
+    const fr=0.07+0.03*fn,fg=0.13+0.04*fn,fb=0.11;              /* pines, dusted with snow */
+    r=lerp(r,fr,forest*0.9);g=lerp(g,fg,forest*0.9);b=lerp(b,fb,forest*0.9);
+    r=lerp(r,0.58,rock*0.85);g=lerp(g,0.57,rock*0.85);b=lerp(b,0.55,rock*0.85);   /* granite */
+    if(a<5&&a>-3){r=0.8;g=0.75;b=0.62;}                         /* sandy beach */
+    col[n*3]=r;col[n*3+1]=g;col[n*3+2]=b;
+  }
+  geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+  /* polygonOffset nudges the land slightly back, so the water wins where they nearly touch far away (no flickering shoreline) */
+  const land=new THREE.Mesh(geo,new THREE.MeshLambertMaterial({vertexColors:true,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:2}));
+  land.frustumCulled=false;scene.add(land);
+  /* the lake: turquoise over the sandy shallows all round the shore, deep blue further out, with a glint where the sun hits it */
+  const wx=steps(-16000,-480,160).concat(steps(-480,480,6),steps(480,14001,160));
+  const wz=steps(1450,1800,5).concat(steps(1800,14001,120));
+  const shal=[0.25,0.66,0.7],mid=[0.1,0.42,0.6],deep=[0.05,0.22,0.42];
+  gridMesh(wx,wz,(x,z,o)=>{
+    o.y=WATER_Y;
+    const d=WATER_Y-((Math.abs(x)<480&&z<1760)?tahoeH(x,z):farH(x,z));   /* water depth */
+    const a=smooth(1,9,d),b=smooth(9,40,d);
+    o.r=lerp(lerp(shal[0],mid[0],a),deep[0],b);o.g=lerp(lerp(shal[1],mid[1],a),deep[1],b);o.b=lerp(lerp(shal[2],mid[2],a),deep[2],b);
+  },new THREE.MeshPhongMaterial({vertexColors:true,emissive:0x061a2c,specular:0x6f8fb0,shininess:60}));
+  /* pine forest on the nearer shores: thousands of simple cones, all in one draw call */
+  const spots=[];
+  for(let i=0;i<40000&&spots.length<9000;i++){
+    const x=-9000+srng()*18000,z=-2500+srng()*14000;
+    const dp=Math.hypot(Math.max(0,Math.abs(x)-480),Math.max(0,-320-z,z-1760));
+    if(dp<40||dp>9000)continue;
+    const y=farH(x,z),a=y-WATER_Y;if(a<6||a>700)continue;
+    const sl=Math.hypot(farH(x+20,z)-y,farH(x,z+20)-y)/20;if(sl>0.55)continue;
+    const fn=0.55+0.45*Math.sin(x*0.004+z*0.003)*Math.sin(z*0.0051-x*0.0027)+0.25*Math.sin(x*0.013-z*0.011);
+    if(srng()>fn-0.15)continue;
+    spots.push([x,y,z,0.75+srng()*0.6]);
+  }
+  const cone=new THREE.ConeGeometry(1,1,6).translate(0,0.5,0);
+  const forest=new THREE.InstancedMesh(cone,new THREE.MeshLambertMaterial({color:0xffffff}),spots.length);
+  const dm=new THREE.Object3D(),cc=new THREE.Color();
+  spots.forEach((p,i)=>{
+    dm.position.set(p[0],p[1]-1,p[2]);dm.scale.set(3.4*p[3],16*p[3],3.4*p[3]);dm.rotation.y=srng()*6;dm.updateMatrix();forest.setMatrixAt(i,dm.matrix);
+    cc.setRGB(0.12+srng()*0.05,0.22+srng()*0.06,0.17+srng()*0.03);forest.setColorAt(i,cc);
+  });
+  forest.instanceMatrix.needsUpdate=true;forest.instanceColor.needsUpdate=true;forest.frustumCulled=false;scene.add(forest);
+  /* Fannette Island in Emerald Bay: a rocky knob with pines and the little stone tea house on top */
+  const isl=new THREE.Group();isl.position.set(7250,WATER_Y,7330);scene.add(isl);
+  const knob=new THREE.Mesh(new THREE.ConeGeometry(55,40,10),M(0x8f8a80));knob.position.y=12;knob.scale.set(1,1,0.7);isl.add(knob);
+  for(let i=0;i<10;i++){const a=i*0.7,r=12+(i%3)*10;const tr=new THREE.Mesh(new THREE.ConeGeometry(4,16,7),M(0x1f3b2c));tr.position.set(Math.cos(a)*r,38-0.75*r,Math.sin(a)*r*0.7);isl.add(tr);}
+  bx(6,4,6,M(0x9a9184),0,31,0,isl);
+  const tea=new THREE.Mesh(new THREE.ConeGeometry(5,3.5,4),M(0x6b4a35));tea.rotation.y=Math.PI/4;tea.position.y=34.7;isl.add(tea);
+}
+(function buildTahoe(){
+  if(TUTORIAL)return;
+  buildBasin();
+  /* a wooden dock by the base lodge */
+  bx(3.4,0.35,46,M(0x8a6a48),118,WATER_Y+0.9,1620);
+  for(let z=1600;z<=1642;z+=7){bx(0.35,4,0.35,M(0x5d4630),116.6,WATER_Y-1,z);bx(0.35,4,0.35,M(0x5d4630),119.4,WATER_Y-1,z);}
+  /* the summit station at the top of the gondola, with a sign facing down the mountain */
+  const s=PADS[0],st=new THREE.Group();st.position.set(s.x,s.h,s.z);scene.add(st);
+  bx(12,5.5,8,M(0x8b939c),0,2.75,0,st);bx(13,0.6,9,M(0xf4f8fb),0,5.8,0,st);
+  bx(12.2,1.6,0.2,M(0x9fd4ff,0x3a6c96),0,3.4,4.05,st);
+  const wheel=new THREE.Mesh(new THREE.TorusGeometry(3,0.3,8,24),M(0x3b434c));wheel.rotation.x=Math.PI/2;wheel.position.set(0,6.4,-5.5);st.add(wheel);
+  const sign=new THREE.Mesh(new THREE.PlaneGeometry(12,3),new THREE.MeshBasicMaterial({map:signTex('LAKE TAHOE','#7fd8ff'),side:THREE.DoubleSide}));sign.position.set(0,8.4,4.6);st.add(sign);
+  addObstacle(s.x,s.z,7);
+  /* a small warming hut halfway down, with a lamp in the window */
+  const hp=PADS[1],hut=new THREE.Group();hut.position.set(hp.x,hp.h,hp.z);scene.add(hut);
+  bx(5,2.6,4,M(0x6e4a31),0,1.3,0,hut);
+  const rf=new THREE.Mesh(new THREE.ConeGeometry(4.3,2.4,4),M(0xf1f6fa));rf.rotation.y=Math.PI/4;rf.position.y=3.8;hut.add(rf);
+  bx(1,1.9,0.2,M(0x2b1c12),0,0.95,2.05,hut);bx(1,0.8,0.2,M(0xffe3a0,0xffc866),-1.5,1.6,2.05,hut);
+  const lamp=new THREE.PointLight(0xffc77a,1,20);lamp.position.set(0,2.4,3);hut.add(lamp);
+  addObstacle(hp.x,hp.z,3.6);
+  /* the board cache: a ring of granite boulders open toward the run, with the Tahoe Legend stuck upright in the snow.
+     No beam marks it like the tutorial fragments; only a faint golden glow among the pines. */
+  const cp=PADS[3],cg=new THREE.Group();cg.position.set(cp.x,cp.h,cp.z);scene.add(cg);
+  const gm=M(0xa29d93);
+  for(let i=0;i<7;i++){
+    const a=Math.PI*0.25+i*(Math.PI*1.5/6),s=2.2+((i*37)%10)/10*1.4,rx=Math.cos(a)*5.2,rz=Math.sin(a)*5.2;   /* the gap faces +x, toward the middle of the slope */
+    const r=new THREE.Mesh(new THREE.DodecahedronGeometry(1,0),gm);r.position.set(rx,s*0.35,rz);r.scale.set(s,s*0.9,s);r.rotation.y=i;cg.add(r);
+    addObstacle(cp.x+rx,cp.z+rz,s*0.8);
+  }
+  const lb=new THREE.Group();lb.rotation.set(0.15,0.6,0.1);cg.add(lb);
+  bx(0.36,1.5,0.05,M(0x14233d,0x0a1830),0,0.85,0,lb);                 /* deep blue topsheet */
+  bx(0.12,1.3,0.012,M(0xffd27a,0x6a4a00),0,0.85,0.03,lb);             /* gold stripe */
+  for(const e of [-1,1])bx(0.02,1.52,0.07,M(0xffc04d,0xa06000),0.18*e,0.85,0,lb);   /* glowing gold edges */
+  const glow=new THREE.PointLight(0xffb347,0.9,16);glow.position.set(0,1.4,0.6);cg.add(glow);
+  cg.userData.glow=glow;boardCache=cg;
+  /* a glint high above the cache, so you can spot it from the run. main.js makes it twinkle and fades it out up close. */
+  boardGlint=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex(),color:0xffc870,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,fog:false}));
+  boardGlint.position.set(0,16,0);boardGlint.scale.set(4,4,1);cg.add(boardGlint);
+  /* the landmark from the clue: a tall dead pine with a red rag tied near the top, taller than the forest round it. It stays after the board is found. */
+  const sx=cp.x+8,sz=cp.z-6,sy=H(sx,sz),snag=new THREE.Group();snag.position.set(sx,sy,sz);scene.add(snag);
+  const bark=M(0x6b625a);
+  const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.6,22,7),bark);trunk.position.y=11;snag.add(trunk);
+  [[5,0.4,4.5],[8,2.5,3.6],[11,4.2,4],[14,1.2,3],[16.5,3.3,2.6],[19,5.5,2]].forEach(b=>{   /* bare branches: height, direction, length */
+    const br=bx(b[2],0.16,0.16,bark,Math.cos(b[1])*b[2]/2,b[0],Math.sin(b[1])*b[2]/2,snag);br.rotation.y=-b[1];br.rotation.z=0.35;
+  });
+  boardRag=new THREE.Mesh(new THREE.PlaneGeometry(1.8,0.9),new THREE.MeshLambertMaterial({color:0xe23b2e,emissive:0x5a0c06,side:THREE.DoubleSide}));
+  boardRag.position.set(1.1,18.2,0);boardRag.rotation.y=Math.PI/2;snag.add(boardRag);
+  addObstacle(sx,sz,0.9);
+  /* the notice board just below the start, where a note gives the first clue */
+  const ns=new THREE.Group();ns.position.set(NOTICE_SPOT.x,H(NOTICE_SPOT.x,NOTICE_SPOT.z),NOTICE_SPOT.z);ns.rotation.y=-0.4;scene.add(ns);
+  for(const e of [-1,1])bx(0.15,2.2,0.15,M(0x5d4630),e*1,1.1,0,ns);
+  bx(2.4,1.4,0.12,M(0x8a6a48),0,1.6,0,ns);
+  bx(0.7,0.9,0.02,M(0xf3e9d2),-0.4,1.6,-0.08,ns);bx(0.5,0.6,0.02,M(0xf3e2b0),0.55,1.7,-0.08,ns);   /* papers pinned on the uphill side */
+  addObstacle(NOTICE_SPOT.x,NOTICE_SPOT.z,1.3);
+  /* the base lodge by the shore, and a banner over the bottom of the run */
+  const bp=PADS[2],L=new THREE.Group();L.position.set(bp.x,bp.h,bp.z);scene.add(L);
+  bx(15,5.5,9,M(0x6e4a31),0,2.75,0,L);bx(16.4,0.7,10.4,M(0xf4f8fb),0,6,0,L);
+  bx(2,3,0.2,M(0x2b1c12),0,1.5,-4.55,L);
+  for(let i=0;i<3;i++)bx(2,1.4,0.2,M(0xffe3a0,0xffc866),-4.5+i*4.5,3.2,-4.55,L);
+  bx(1.2,3,1.2,M(0x5d625f),4,7.2,2,L);
+  addObstacle(bp.x,bp.z,8.4);
+  const fz=FINISH_Z;
+  [-13,13].forEach(x=>{const m=new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,10,8),M(0xe24a3b));m.position.set(x,H(x,fz)+5,fz);scene.add(m);addObstacle(x,fz,0.7);});
+  const ban=new THREE.Mesh(new THREE.PlaneGeometry(26,6.5),new THREE.MeshBasicMaterial({map:signTex('BASE LODGE','#ff6b57'),side:THREE.DoubleSide,fog:false}));
+  ban.position.set(0,H(0,fz)+10.5,fz);scene.add(ban);
 })();
 
 /* ================= jump structures ================= */
@@ -439,7 +663,7 @@ const fragObjs=FR.map((f,i)=>{
 const gateGroup=new THREE.Group();gateGroup.visible=false;scene.add(gateGroup);
 const GATES=[];
 (function(){
-  for(let i=0;i<14;i++){
+  for(let i=0;i<(TUTORIAL?14:0);i++){
     const gz=-200+i*128,gx=lineX(gz);
     const m=new THREE.Mesh(new THREE.TorusGeometry(5.2,0.26,8,36,Math.PI),new THREE.MeshBasicMaterial({color:0x7fe8ff,fog:false}));
     const dx=lineX(gz+2)-lineX(gz-2);

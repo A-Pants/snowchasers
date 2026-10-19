@@ -72,6 +72,7 @@ function makeAudio(ctx){
   A.click=function(){tone({f:1500,dur:0.035,type:'sine',peak:0.07,attack:0.002});};
   A.tick=function(){tone({f:900,dur:0.06,type:'sine',peak:0.08,slide:520,attack:0.002});};
   A.step=function(){burst({dur:0.08,type:'bandpass',f:1100*(0.85+0.3*Math.random()),q:1.2,peak:1.1*(0.8+0.4*Math.random()),white:true});burst({dur:0.11,type:'lowpass',f:280,q:0.7,peak:0.6});};
+  A.sense=function(level){const f=[1318.5,1760,2093][(level||1)-1]||1318.5;tone({f:f,dur:0.7,type:'sine',peak:0.05+0.02*level,echo:true});tone({f:f*1.5,dur:0.6,type:'sine',peak:0.03+0.01*level,at:0.12,echo:true});};   /* you are getting close to something hidden */
   A.whoosh=function(){burst({dur:0.34,type:'bandpass',f:600,f2:2600,q:1.1,peak:1.0,white:true,attack:0.07});};
 
   /* per-frame state: speed, air, carve (0-1), rotor (0-1) */

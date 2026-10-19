@@ -9,10 +9,14 @@ const clamp=(v,a,b)=>v<a?a:(v>b?b:v);
 const lerp=(a,b,t)=>a+(b-a)*t;
 const smooth=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
 const angdiff=(a,b)=>{let d=a-b;while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;return d;};
-/* the Lost Line: for a distance z down the mountain, the x position of the racing line. Gates and line jumps follow it. */
+/* the Lost Line: for a distance z down the mountain, the x position of the racing line. Gates and line jumps follow it.
+   On other mountains the same curve is the main groomed run, which stays clear of trees. */
 const lineX=z=>38*Math.sin(z*0.0105)+16*Math.sin(z*0.027+1.0);
-/* z runs downhill: the summit is at -270, the normal start at 10 and the finish line at 1590. x runs across the slope. */
-const FINISH_Z=1590, START_Z=10, SUMMIT_Z=-270;
+/* z runs downhill: the summit is at -270, the normal start at 10 and the finish line at 1590. x runs across the slope.
+   At Lake Tahoe you start by the summit station and the finish is the base lodge, just above the lake shore. */
+const FINISH_Z=TUTORIAL?1590:1520, START_Z=TUTORIAL?10:-185, SUMMIT_Z=-270;
+/* how far you can go: x from -XMAX to XMAX, z from ZMIN to ZMAX (at Tahoe ZMAX stops you at the water's edge) */
+const XMAX=410, ZMIN=-312, ZMAX=TUTORIAL?1745:1605;
 
 /* three jump types: small wood, big wood and cliff (rock). All share one profile: a rising ramp, a lip, then a drop. */
 const JT={
@@ -55,12 +59,17 @@ function placeFree(kind,z,x){
   const offs=[0,18,-18,36,-36,54,-54,72,-72];
   for(let i=0;i<offs.length;i++){if(jumpFits(kind,z+offs[i],x,false)){addJump(kind,z+offs[i],x,false);return;}}
 }
+if(TUTORIAL){
 /* place every jump. The Edge must be first: quests.js puts map fragment II at JUMPS[0]. */
 addJump('cl',610,-62,false);                       /* The Edge (map fragment II) */
 [['ws',-128],['wb',128],['ws',384],['wb',632],['ws',768],['wb',1020],['ws',1150],['wb',1404]].forEach(a=>placeLineJump(a[0],a[1]));   /* on the Lost Line */
 [[255,-30],[500,30],[890,-30],[1270,30]].forEach(a=>placeFree('cl',a[0],lineX(a[0]-15)+a[1]));   /* risky cliffs beside the line */
 [['ws',30,40],['wb',200,-52],['ws',330,-26],['ws',460,58],['wb',700,52],['ws',830,-40],['wb',1090,-58],['ws',1220,44],['wb',1330,-46],['ws',1480,-30],['ws',560,40],['wb',1190,-20],
   ['wb',300,105],['ws',560,-105],['wb',860,125],['cl',1000,125],['ws',1160,-115],['wb',1400,105],['cl',1440,-130],['ws',150,-115],['ws',640,120],['wb',1010,-130],['cl',350,-135],['ws',930,135]].forEach(a=>placeFree(a[0],a[1],a[2]));   /* free ride */
+} else {
+  /* Lake Tahoe has no built jumps, only natural granite drops away from the groomed run */
+  [[120,-125],[300,140],[545,-75],[820,170],[1050,-150],[1250,95],[690,-210],[400,230]].forEach(a=>addJump('cl',a[0],a[1],false));
+}
 
 /* how much jump k raises the snow at x,z (0 when you are not on it). This is what shapes a ramp into the ground. */
 function kick(k,x,z){
@@ -73,6 +82,7 @@ function kick(k,x,z){
 }
 /* the snow height at x,z before the landmark pads are levelled: one long slope, a valley shape, gentle bumps and the jumps */
 function rawH(x,z){
+  if(!TUTORIAL)return tahoeH(x,z);
   const a=-0.31*z,b=-500;
   const base=0.5*(a+b+Math.sqrt((a-b)*(a-b)+2500));
   const ax=Math.abs(x);
@@ -84,8 +94,25 @@ function rawH(x,z){
   h+=smooth(1690,1760,z)*120+smooth(-285,-312,z)*90;
   return h;
 }
-/* flat pads for the outpost, the shelter and the cave, so the buildings sit level */
-const PADS=[{x:68,z:240,r:11},{x:-92,z:960,r:15},{x:98,z:1350,r:9}];
+/* Lake Tahoe: a steep granite bowl under a summit peak, framed by two ridges, then long forested runs that end at the lake.
+   The shore drops away below the water, and the slope keeps going down out of sight under the lake. */
+function tahoeH(x,z){
+  const ax=Math.abs(x);
+  let h=-0.30*z+80*(1-smooth(-250,450,z));                                  /* the long run down, steeper up in the bowl */
+  h-=70*smooth(1480,1700,z);                                               /* the shore falls away under the water */
+  h+=(ax*ax/57600*40+40*smooth(250,480,ax))*(1-0.85*smooth(1350,1650,z));   /* gentle forested valley sides, opening out into a wide beach at the shore */
+  h+=55*(1-smooth(150,900,z))*Math.exp(-Math.pow((ax-175)/70,2));         /* two ridges framing the summit bowl */
+  h+=45*Math.exp(-(x*x+(z+290)*(z+290))/8100);                             /* the summit peak */
+  const fade=smooth(1600,1400,z);
+  h+=(Math.sin(x*0.05+z*0.023)*4+Math.sin(x*0.13-z*0.06)*1.6+Math.sin(z*0.04+0.7)*3+Math.sin(x*0.024+z*0.014)*6)*0.7*fade;
+  for(let i=0;i<JUMPS.length;i++) h+=kick(JUMPS[i],x,z);
+  h+=smooth(-285,-312,z)*90;                                               /* the ridge behind the summit */
+  return h;
+}
+/* the lake's surface height (only used at Tahoe) */
+const WATER_Y=TUTORIAL?null:tahoeH(0,1628);
+/* flat pads so buildings sit level. Tutorial: the outpost, the shelter and the cave. Tahoe: the summit station, a mid-mountain hut, the base lodge and the hidden board cache. */
+const PADS=TUTORIAL?[{x:68,z:240,r:11},{x:-92,z:960,r:15},{x:98,z:1350,r:9}]:[{x:42,z:-222,r:10},{x:-140,z:760,r:9},{x:70,z:1548,r:14},{x:-258,z:1010,r:6}];
 PADS.forEach(p=>{p.h=rawH(p.x,p.z);});
 /* H(x,z) is the height of the snow at any point. Almost everything uses it: physics, trees, the camera, the minimap. */
 function H(x,z){
