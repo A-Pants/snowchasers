@@ -3,7 +3,7 @@
    Also the walk-mode button. */
 'use strict';
 /* SKI holds the stats your gear changes (gear.js applyGear sets them): drag, turn rate, landing tolerance, trick score bonus, push on flat ground, hop power and armor */
-const SKI={drag:1,turn:1,tol:0.6,style:1,push:1,hop:1,spin:1,armor:0};
+const SKI={drag:1,turn:1,tol:0.6,style:1,push:1,hop:1,spin:1,wind:1,armor:0};
 /* Hitting a tree or rock is a roll, not a certainty. base is the wipeout chance for a full-speed hit; SKI.armor (0 to 1, for future gear)
    reduces it. A hit that does not wipe you out just clips you: you bounce off and lose a little speed. */
 const CRASH={base:0.30,grace:1.8};
@@ -24,6 +24,17 @@ const P={x:0,z:START_Z,y:0,vx:0,vz:0,vy:0,h:0,grounded:true,steer:0,tuck:0,brake
 /* ignore small stick movements so a light touch does not start a flip or spin */
 const rotDz=v=>{const a=Math.abs(v);return a<0.35?0:Math.sign(v)*(a-0.35)/0.65;};
 /* clear the trick in progress */
+/* Mount Washington's wind: above treeline, gusts out of the northwest push you along and to the right.
+   windNow is the current strength (also used for the wind sound and blowing snow). The Rime Parka blocks most of it. */
+const WIND_DIR={x:-0.6,z:0.8};let windNow=0;
+function windGust(t){return 1.2+3.6*Math.max(0,Math.sin(t*0.55)*Math.sin(t*0.21+1.3))+0.6*Math.sin(t*2.3)*Math.sin(t*0.9);}
+function applyWind(dt){
+  windNow=0;if(!WASH)return;
+  const above=1-smooth(480,700,P.z);if(above<=0)return;
+  windNow=Math.max(0,windGust(performance.now()/1000))*above;
+  const f=windNow*SKI.wind*(P.grounded?1:1.4);
+  P.vx+=WIND_DIR.x*f*dt;P.vz+=WIND_DIR.z*f*dt;
+}
 function resetTrick(){P.flip=P.spin=P.fv=P.sv=0;P.grab=null;P.grabs.up=P.grabs.down=P.grabs.left=P.grabs.right=0;P.grabT=0;}
 /* put the skier at x,z facing h, standing still, with everything reset */
 function placePlayer(x,z,h){
@@ -132,6 +143,7 @@ function stepPlayer(dt,inp,ev){
     if(P.crash<=0){P.crash=0;grad(P.x,P.z,_g);const L=Math.hypot(_g.x,_g.z)||1;P.h=Math.atan2(-_g.x,-_g.z);P.vx=-_g.x/L*6;P.vz=-_g.z/L*6;P.grace=Math.max(P.grace,0.6+1.2*P.crashSev);}
     return;
   }
+  applyWind(dt);
   if(P.walk){walkStep(dt,inp,ev);return;}
   const lx=inp.lx,ly=inp.ly,rx=inp.rx,ry=inp.ry;
   P.steer+=(lx-P.steer)*Math.min(1,dt*10);
@@ -273,75 +285,109 @@ function stepPlayer(dt,inp,ev){
   }
 }
 
-/* ================= skier ================= */
 /* ================= riders: the local skier and every remote rider share one model ================= */
-/* makeRider builds one skier out of boxes and spheres and returns its parts so they can be posed and recoloured.
+/* body sizes, in model units (the whole model is scaled by RIDER_SCALE). Real proportions: about 1.8 tall, legs about half of that. */
+const RIDER_SCALE=1.05,THIGH=0.43,SHIN=0.43,SOLE=0.09,UPPER_ARM=0.31,FOREARM=0.27,STAND_HIP=THIGH+SHIN+SOLE;
+/* a capsule (a cylinder with rounded ends) of radius r whose straight part is len long, centred on its parent and lying along y */
+function capsule(r,len,mat,parent,x,y,z){
+  const pts=[];
+  for(let i=0;i<=6;i++){const a=-Math.PI/2+i/6*Math.PI/2;pts.push(new THREE.Vector2(Math.max(0.0001,Math.cos(a)*r),-len/2+Math.sin(a)*r));}
+  for(let i=0;i<=6;i++){const a=i/6*Math.PI/2;pts.push(new THREE.Vector2(Math.max(0.0001,Math.cos(a)*r),len/2+Math.sin(a)*r));}
+  const m=new THREE.Mesh(new THREE.LatheGeometry(pts,12),mat);m.position.set(x||0,y||0,z||0);parent.add(m);return m;
+}
+function joint(parent,x,y,z){const g=new THREE.Group();g.position.set(x,y,z);parent.add(g);return g;}
+/* makeRider builds one skier and returns its parts so they can be posed and recoloured. The joints are nested groups:
+   pelvis -> hips -> knees -> ankles for the legs, and pelvis -> upper body -> shoulders -> elbows -> hands for the arms.
    The Apex Shell, Ridge pants and Trailblazer boots are extra pieces that stay hidden until that gear is worn. */
 function makeRider(){
   const mats={jacket:M(0xe8553d),accent:new THREE.MeshLambertMaterial({color:0x2f8fe0}),pants:M(0x25313f),boot:M(0x161d28),
     trim:new THREE.MeshLambertMaterial({color:0xf2f7fb,emissive:0x1d2630}),skiBase:M(0x2c3440),stripe:new THREE.MeshBasicMaterial({color:0x39d0ff}),
     glove:M(0x1b222c),pole:M(0x8d97a3)};
+  const parts={},gp={shell:new THREE.Group(),ridge:new THREE.Group(),ridgeSides:[],trailSides:[]},legs=[],boots=[],legG={},skiG={},poles=[],arms={};
   const group=new THREE.Group();
-  const upper=new THREE.Group();upper.position.set(0,0.9,0);group.add(upper);
-  upper.rotation.order='YXZ';   /* turn first, then lean, so a snowboarder standing sideways still leans over their own toes */
-  const parts={},gp={shell:new THREE.Group(),ridge:new THREE.Group(),ridgeSides:[],trailSides:[]},legs=[],boots=[],legG={},skiG={},poles=[];
-  const helm=M(0x161d28),HIP=0.86;
-  bx(0.62,0.72,0.38,mats.jacket,0,0.38,0,upper);
-  bx(0.46,0.5,0.22,M(0x33404f),0,0.38,-0.3,upper);
-  /* arms: each hand holds a ski pole that is part of the arm, so the pole always passes through the glove */
-  const pv=new THREE.Vector3(0,-0.44,-0.897).normalize();   /* pole direction in the arm's frame: down and back, whatever the arm is doing */
-  const hand=new THREE.Vector3(0,-0.57,0);
+  const pelvis=joint(group,0,STAND_HIP,0);pelvis.rotation.order='YXZ';
+  /* hips and seat */
+  const hips=capsule(0.13,0.16,mats.pants,pelvis,0,0.03,0);hips.rotation.z=Math.PI/2;hips.scale.set(1,1,0.85);
+  const ridge=gp.ridge;pelvis.add(ridge);ridge.visible=false;
+  bx(0.3,0.14,0.03,mats.trim,0,0.03,-0.12,ridge);                 /* Ridge pants seat patch */
+  /* legs: thigh, knee, shin, ankle and boot. The boot stays level whatever the knee is doing. */
   for(const sd of [-1,1]){
-    const sh=new THREE.Group();sh.position.set(0.42*sd,0.66,0.1);upper.add(sh);
-    bx(0.14,0.55,0.14,mats.jacket,0,-0.28,0,sh);
-    const glove=new THREE.Mesh(new THREE.SphereGeometry(0.09,8,6),mats.glove);glove.position.copy(hand);sh.add(glove);
-    const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.017,0.017,1.25,5),mats.pole);
-    pole.position.copy(hand).addScaledVector(pv,0.43);pole.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),pv);sh.add(pole);
-    const basket=new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.09,0.012,8),mats.pole);
-    basket.position.copy(hand).addScaledVector(pv,1.02);basket.quaternion.copy(pole.quaternion);sh.add(basket);
-    poles.push(pole,basket);
-    sh.rotation.x=-0.8;parts['arm'+sd]=sh;
+    const hip=joint(pelvis,0.11*sd,0,0);legG[sd]=hip;
+    legs.push(capsule(0.085,THIGH-0.12,mats.pants,hip,0,-THIGH/2,0));
+    const knee=joint(hip,0,-THIGH,0);
+    legs.push(capsule(0.068,SHIN-0.1,mats.pants,knee,0,-SHIN/2,0));
+    const ankle=joint(knee,0,-SHIN,0);
+    const boot=bx(0.14,0.16,0.32,mats.boot,0,-0.01,0.04,ankle);boots.push(boot);
+    hip.userData={knee:knee,ankle:ankle};
+    const rs=new THREE.Group();hip.add(rs);rs.visible=false;gp.ridgeSides.push(rs);   /* Ridge pants: outer stripe down the leg */
+    bx(0.025,THIGH-0.08,0.07,mats.trim,0.1*sd,-THIGH/2,0,rs);
+    const rc=new THREE.Group();knee.add(rc);rc.visible=false;gp.ridgeSides.push(rc);  /* and a bright cuff over the boot */
+    bx(0.2,0.05,0.2,mats.trim,0,-SHIN+0.1,0,rc);
+    const ts=new THREE.Group();ankle.add(ts);ts.visible=false;gp.trailSides.push(ts);   /* Trailblazer boots: buckle straps */
+    bx(0.16,0.025,0.34,mats.trim,0,-0.02,0.04,ts);bx(0.16,0.025,0.34,mats.trim,0,0.05,0.04,ts);bx(0.16,0.035,0.2,mats.accent,0,0.12,0,ts);
+    /* skis hang off the group, not the leg, so they stay flat; poseRider moves them under each boot every frame */
+    const sg=new THREE.Group();group.add(sg);skiG[sd]=sg;
+    const ski=bx(0.11,0.035,1.85,mats.skiBase,0,0.018,0.15,sg);
+    const str=bx(0.04,0.01,1.5,mats.stripe,0,0.04,0.15,sg);
+    const tip=bx(0.11,0.035,0.3,mats.accent,0,0.06,1.18,sg);tip.rotation.x=-0.4;
+    const tail=bx(0.11,0.035,0.18,mats.skiBase,0,0.035,-0.83,sg);tail.rotation.x=0.25;
+    bx(0.12,0.05,0.34,M(0x2b333d),0,0.055,0.03,sg);                 /* binding */
+    parts['ski'+sd]=ski;parts['str'+sd]=str;
   }
-  const head=new THREE.Mesh(new THREE.SphereGeometry(0.22,12,10),helm);head.position.set(0,0.95,0.05);upper.add(head);
-  bx(0.32,0.11,0.12,M(0x0d1117,0x2a5d8c),0,0.95,0.22,upper);
+  /* upper body: jacket, backpack, neck gaiter, helmet and goggles */
+  const upper=joint(pelvis,0,0.08,0);upper.rotation.order='YXZ';   /* turn first, then lean */
+  const torso=capsule(0.16,0.24,mats.jacket,upper,0,0.26,0);torso.scale.set(1.3,1,0.82);
+  bx(0.025,0.4,0.02,mats.trim,0,0.25,0.135,upper);                 /* zip */
+  bx(0.27,0.34,0.12,M(0x33404f),0,0.27,-0.18,upper);               /* backpack */
+  capsule(0.072,0.04,mats.accent,upper,0,0.52,0);                  /* neck gaiter */
+  const head=joint(upper,0,0.65,0.01);
+  const helm=new THREE.Mesh(new THREE.SphereGeometry(0.135,16,12),M(0x161d28));helm.scale.set(1,1.02,1.12);head.add(helm);
+  const lens=new THREE.Mesh(new THREE.CylinderGeometry(0.142,0.142,0.07,16,1,true,-1.15,2.3),M(0x0d1117,0x2a5d8c));lens.position.y=-0.01;lens.scale.z=1.1;head.add(lens);
+  const strap=new THREE.Mesh(new THREE.CylinderGeometry(0.138,0.138,0.04,16,1,true,1.15,Math.PI*2-2.3),mats.accent);strap.position.y=-0.01;strap.scale.z=1.1;head.add(strap);
+  capsule(0.06,0.02,M(0x1b222c),head,0,-0.1,0.05).scale.set(1,0.7,1);   /* chin, covered by the gaiter */
   /* Apex Shell: hood, contrast yoke across the shoulders, longer hem and a stripe over the pack */
   const shell=gp.shell;upper.add(shell);shell.visible=false;
-  const hood=new THREE.Mesh(new THREE.SphereGeometry(0.27,12,10),mats.jacket);hood.position.set(0,0.8,-0.15);hood.scale.set(1.2,0.85,0.9);shell.add(hood);
-  bx(0.7,0.14,0.46,mats.trim,0,0.6,0,shell);
-  bx(0.66,0.3,0.42,mats.jacket,0,-0.02,0,shell);
-  bx(0.5,0.05,0.27,mats.trim,0,0.5,-0.31,shell);
-  bx(0.12,0.2,0.16,mats.trim,0.42,0.58,0.1,shell);bx(0.12,0.2,0.16,mats.trim,-0.42,0.58,0.1,shell);
-  bx(0.5,0.3,0.34,mats.pants,0,0.88,0,group);
-  const ridge=gp.ridge;group.add(ridge);ridge.visible=false;
-  bx(0.46,0.2,0.05,mats.trim,0,0.8,-0.19,ridge);       /* Ridge pants seat patch */
-  /* legs hang from the hips so they can swing; each ski follows its boot but stays flat */
+  const hood=new THREE.Mesh(new THREE.SphereGeometry(0.16,12,10),mats.jacket);hood.position.set(0,0.56,-0.12);hood.scale.set(1.2,0.8,0.9);shell.add(hood);
+  const yoke=capsule(0.17,0.12,mats.trim,shell,0,0.41,0);yoke.scale.set(1.32,0.35,0.86);
+  const hem=capsule(0.165,0.06,mats.jacket,shell,0,0.04,0);hem.scale.set(1.34,0.6,0.86);
+  bx(0.24,0.03,0.13,mats.trim,0,0.36,-0.19,shell);
+  /* the Rime Parka: a puffy quilted parka with a hood and a fur ruff round the face */
+  const parka=new THREE.Group();upper.add(parka);parka.visible=false;gp.parka=parka;
+  const puff=capsule(0.19,0.22,mats.jacket,parka,0,0.26,0);puff.scale.set(1.32,1,0.98);
+  for(const y of [0.14,0.26,0.38]){const q=new THREE.Mesh(new THREE.TorusGeometry(0.2,0.012,6,20),mats.trim);q.rotation.x=Math.PI/2;q.scale.set(1.3,0.98,1);q.position.y=y;parka.add(q);}   /* quilting */
+  const phood=new THREE.Mesh(new THREE.SphereGeometry(0.17,12,10),mats.jacket);phood.position.set(0,0.62,-0.06);phood.scale.set(1.15,1.05,1.1);parka.add(phood);
+  const ruff=new THREE.Mesh(new THREE.TorusGeometry(0.15,0.045,8,20),M(0xe9e1d0));ruff.position.set(0,0.65,0.07);parka.add(ruff);
+  /* arms: shoulder, upper arm, elbow, forearm, glove. Each hand holds a pole. */
   for(const sd of [-1,1]){
-    const lg=new THREE.Group();lg.position.set(0.17*sd,HIP,0.06);group.add(lg);legG[sd]=lg;
-    const leg=bx(0.2,0.72,0.24,mats.pants,0,0.5-HIP,0,lg);leg.rotation.x=0.18;legs.push(leg);
-    const boot=bx(0.22,0.2,0.4,mats.boot,0,0.13-HIP,0.06,lg);boots.push(boot);
-    const rs=new THREE.Group();lg.add(rs);rs.visible=false;gp.ridgeSides.push(rs);   /* Ridge pants: outer stripe and bright cuff */
-    bx(0.04,0.56,0.12,mats.trim,0.15*sd,0.52-HIP,0,rs);
-    bx(0.3,0.05,0.34,mats.trim,0,0.3-HIP,0.02,rs);
-    const ts=new THREE.Group();lg.add(ts);ts.visible=false;gp.trailSides.push(ts);   /* Trailblazer boots: buckle straps */
-    bx(0.25,0.035,0.44,mats.trim,0,0.1-HIP,0.06,ts);bx(0.25,0.035,0.44,mats.trim,0,0.22-HIP,0.06,ts);bx(0.25,0.05,0.44,mats.accent,0,0.34-HIP,0.06,ts);
-    const sg=new THREE.Group();group.add(sg);skiG[sd]=sg;
-    const ski=bx(0.13,0.05,2.1,mats.skiBase,0.2*sd,0.03,0.25,sg);
-    const str=bx(0.05,0.012,1.7,mats.stripe,0.2*sd,0.062,0.25,sg);
-    const tip=bx(0.13,0.05,0.35,mats.accent,0.2*sd,0.07,1.22,sg);tip.rotation.x=-0.35;
-    parts['ski'+sd]=ski;parts['str'+sd]=str;
+    const pv=new THREE.Vector3(0.3*sd,0.15,-0.94).normalize();   /* pole direction in the hand's frame: down, a little back and out to the side */
+    const sh=joint(upper,0.22*sd,0.45,0);arms[sd]=sh;
+    const ball=new THREE.Mesh(new THREE.SphereGeometry(0.078,10,8),mats.jacket);sh.add(ball);
+    capsule(0.058,UPPER_ARM-0.1,mats.jacket,sh,0,-UPPER_ARM/2,0);
+    const elbow=joint(sh,0,-UPPER_ARM,0);
+    capsule(0.05,FOREARM-0.12,mats.jacket,elbow,0,-FOREARM/2+0.02,0);
+    const hand=joint(elbow,0,-FOREARM,0);
+    const glove=new THREE.Mesh(new THREE.SphereGeometry(0.055,10,8),mats.glove);glove.scale.set(0.9,1.25,1);hand.add(glove);
+    const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.014,0.014,1.2,5),mats.pole);
+    pole.position.copy(pv).multiplyScalar(0.52);pole.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),pv);hand.add(pole);
+    const basket=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,0.012,8),mats.pole);
+    basket.position.copy(pv).multiplyScalar(1.0);basket.quaternion.copy(pole.quaternion);hand.add(basket);
+    poles.push(pole,basket);sh.userData={elbow:elbow,hand:hand,pole:[pole,basket]};
+    parts['arm'+sd]=sh;
   }
   /* the Tahoe Legend snowboard: hidden until worn. The board points down the hill and the rider stands across it. */
   const board=new THREE.Group();group.add(board);board.visible=false;gp.board=board;
   const gold=M(0xffc04d,0x7a4a00);
-  bx(0.34,0.04,1.4,mats.skiBase,0,0.04,0,board);
-  for(const e of [-1,1]){const tip=bx(0.34,0.04,0.28,mats.skiBase,0,0.075,0.8*e,board);tip.rotation.x=-0.38*e;}   /* upturned nose and tail */
-  bx(0.1,0.012,1.3,mats.accent,0,0.066,0,board);                                                            /* topsheet stripe */
-  for(const e of [-1,1]){bx(0.02,0.05,1.42,gold,0.17*e,0.04,0,board);bx(0.3,0.08,0.16,M(0x1b222c),0,0.09,0.33*e,board);}   /* gold edges and bindings */
-  group.scale.setScalar(1.12);
+  bx(0.32,0.035,1.3,mats.skiBase,0,0.018,0,board);
+  for(const e of [-1,1]){const tip=bx(0.32,0.035,0.26,mats.skiBase,0,0.05,0.75*e,board);tip.rotation.x=-0.38*e;}   /* upturned nose and tail */
+  bx(0.1,0.01,1.2,mats.accent,0,0.04,0,board);                                                              /* topsheet stripe */
+  for(const e of [-1,1]){bx(0.02,0.045,1.32,gold,0.16*e,0.02,0,board);bx(0.26,0.07,0.16,M(0x1b222c),0,0.07,0.3*e,board);}   /* gold edges and bindings */
+  group.scale.setScalar(RIDER_SCALE);
   const shadow=new THREE.Mesh(new THREE.CircleGeometry(1,18),new THREE.MeshBasicMaterial({color:0x13243a,transparent:true,opacity:0.28,depthWrite:false,fog:false}));
   shadow.rotation.x=-Math.PI/2;
   const shadowWrap=new THREE.Group();shadowWrap.add(shadow);
-  return {group:group,upper:upper,mats:mats,parts:parts,gp:gp,legs:legs,boots:boots,legG:legG,skiG:skiG,poles:poles,shadow:shadow,shadowWrap:shadowWrap,up:new THREE.Vector3(0,1,0),ph:0};
+  return {group:group,pelvis:pelvis,upper:upper,mats:mats,parts:parts,gp:gp,legs:legs,boots:boots,legG:legG,skiG:skiG,poles:poles,arms:arms,
+    shadow:shadow,shadowWrap:shadowWrap,up:new THREE.Vector3(0,1,0),ph:0,
+    pose:{f:[-0.3,-0.3],b:[0.6,0.6],lean:0.2,twist:0,yaw:0,airK:0,pitch:0}};   /* the smoothed pose, eased toward its target each frame */
 }
 /* free a rider's memory when another player leaves */
 function disposeRider(R){
@@ -357,45 +403,116 @@ const hexRGB=h=>[((h>>16)&255)/255,((h>>8)&255)/255,(h&255)/255];
 /* a look is what a rider is wearing: item ids plus [jacket,pants,boots,ski accent] colours. Sent to other players and applied to their model. */
 function setRiderLook(R,look){
   const lost=look.skis==='lost';
-  R.board=look.skis==='board';   /* animateLegs swaps skis for the board */
+  R.board=look.skis==='board';   /* poseRider swaps skis for the board */
   R.mats.skiBase.color.setHex(lost?0x12171f:(R.board?0x14233d:look.c[3]));
   R.mats.stripe.color.setHex(look.c[3]);R.mats.accent.color.setHex(look.c[3]);
   R.parts.str1.visible=R.parts['str-1'].visible=lost;
   R.mats.jacket.color.setHex(look.c[0]);R.mats.pants.color.setHex(look.c[1]);R.mats.boot.color.setHex(look.c[2]);
-  R.gp.shell.visible=look.jacket==='apex';
-  const rid=look.pants==='ridge';R.gp.ridge.visible=rid;R.gp.ridgeSides.forEach(g=>{g.visible=rid;});R.legs.forEach(l=>l.scale.set(rid?1.38:1,1,rid?1.2:1));
-  const tb=look.boots==='trail';R.gp.trailSides.forEach(g=>{g.visible=tb;});R.boots.forEach(b=>{b.scale.set(tb?1.08:1,tb?1.9:1,tb?1.12:1);b.position.y=(tb?0.19:0.13)-0.86;});
+  R.gp.shell.visible=look.jacket==='apex';R.gp.parka.visible=look.jacket==='rime';
+  const rid=look.pants==='ridge';R.gp.ridge.visible=rid;R.gp.ridgeSides.forEach(g=>{g.visible=rid;});R.legs.forEach(l=>l.scale.set(rid?1.3:1,1,rid?1.2:1));
+  const tb=look.boots==='trail';R.gp.trailSides.forEach(g=>{g.visible=tb;});R.boots.forEach(b=>{b.scale.set(tb?1.08:1,tb?1.4:1,tb?1.1:1);b.position.y=tb?0.02:-0.01;});
 }
 
 /* ================= skier model update ================= */
 /* scratch vectors reused every frame so posing riders does not create garbage */
 const _n=new THREE.Vector3(0,1,0),_up=new THREE.Vector3(0,1,0),_Y=new THREE.Vector3(0,1,0),_Z=new THREE.Vector3(0,0,1),_Xv=new THREE.Vector3(1,0,0);
 const _f=new THREE.Vector3(),_x=new THREE.Vector3(),_y=new THREE.Vector3(),_m=new THREE.Matrix4(),_q=new THREE.Quaternion(),_e=new THREE.Euler();
-const _qb=new THREE.Quaternion(),_v1=new THREE.Vector3(),_v2=new THREE.Vector3(),_c=new THREE.Vector3(0,1.15,0);
-/* legs swing a little while skiing, and walk properly on foot. The skis follow the boots but stay flat. */
-/* legs swing a little while skiing, and walk properly on foot. The skis follow the boots but stay flat. */
-function animateLegs(R,S,dt,sp){
-  const walking=!!S.walk;
-  let rate=0,amp=0;
-  if(walking){rate=Math.min(sp,6.5)*3.3;amp=0.62*clamp(sp/2.5,0,1);}
-  else if(S.grounded&&!(S.crash>0)){rate=clamp(sp*0.2,0,5.2);amp=0.2*clamp((sp-2)/9,0,1);}
-  R.ph+=rate*dt;
-  const kk=Math.min(1,dt*14),air=!S.grounded&&!walking&&!(S.crash>0);
-  const brd=!!R.board&&!walking;   /* on a snowboard: feet one behind the other across the board, body turned sideways, no poles */
+const _qb=new THREE.Quaternion(),_v1=new THREE.Vector3(),_v2=new THREE.Vector3(),_c=new THREE.Vector3(0,1.0,0);
+const _ikT=new THREE.Vector3(),_ikD=new THREE.Vector3(),_ikP=new THREE.Vector3(),_ikE=new THREE.Vector3(),_ikH=new THREE.Vector3(),_ikQ=new THREE.Quaternion(),_ikQ2=new THREE.Quaternion(),_ikQi=new THREE.Quaternion();
+const _ft=[new THREE.Vector3(),new THREE.Vector3()],_DOWN=new THREE.Vector3(0,-1,0),_eul=new THREE.Euler();
+/* where a foot's sole is, in the rider group's own frame */
+function soleLocal(R,sd,out){
+  out.setFromMatrixPosition(R.legG[sd].userData.ankle.matrixWorld);R.group.worldToLocal(out);out.y-=SOLE;return out;
+}
+/* two-bone arm IK: bend the shoulder and elbow so the hand reaches target (a point in the rider group's frame).
+   The elbow points out to the side and back, like a real arm reaching down. */
+function reachTo(R,sd,target,k){
+  const sh=R.arms[sd],el=sh.userData.elbow;
+  _ikT.copy(target);R.group.localToWorld(_ikT);sh.parent.worldToLocal(_ikT);   /* the target in the upper body's frame */
+  _ikD.subVectors(_ikT,sh.position);
+  const dist=clamp(_ikD.length(),0.05,(UPPER_ARM+FOREARM)*0.999);_ikD.normalize();
+  const ca=clamp((UPPER_ARM*UPPER_ARM+dist*dist-FOREARM*FOREARM)/(2*UPPER_ARM*dist),-1,1),sa=Math.sqrt(1-ca*ca);   /* law of cosines */
+  _ikP.set(sd,-0.3,-0.6);_ikP.addScaledVector(_ikD,-_ikP.dot(_ikD)).normalize();   /* the way the elbow bends */
+  _ikE.copy(_ikD).multiplyScalar(ca).addScaledVector(_ikP,sa);                       /* shoulder -> elbow direction */
+  _ikQ.setFromUnitVectors(_DOWN,_ikE);
+  _ikH.copy(_ikD).multiplyScalar(dist).addScaledVector(_ikE,-UPPER_ARM).normalize(); /* elbow -> hand direction */
+  _ikQi.copy(_ikQ).invert();_ikH.applyQuaternion(_ikQi);
+  _ikQ2.setFromUnitVectors(_DOWN,_ikH);
+  sh.quaternion.slerp(_ikQ,k);el.quaternion.slerp(_ikQ2,k);
+}
+/* a relaxed arm pose: shoulder swing forward (x) and out (z), elbow bend (e, negative bends the forearm forward) */
+function armPose(R,sd,x,z,e,k){
+  const sh=R.arms[sd];
+  _ikQ.setFromEuler(_eul.set(x,0,z*sd));sh.quaternion.slerp(_ikQ,k);
+  _ikQ.setFromEuler(_eul.set(e,0,0));sh.userData.elbow.quaternion.slerp(_ikQ,k);
+}
+/* where each grab puts a hand: [arm, point on the ski or board]. Arm 1 is the rider's left, -1 the right.
+   On a snowboard the rider faces the toe edge (+x) with the right hand toward the nose. */
+const GRAB_SKI={up:[1,1,[0,0.04,0.75]],down:[-1,-1,[0,0.04,-0.45]],left:[1,1,[0.06,0.03,0.12]],right:[-1,-1,[-0.06,0.03,0.12]]};   /* [arm, which ski, point on it] */
+const GRAB_BOARD={up:[-1,[0,0.04,0.74]],down:[1,[0,0.04,-0.74]],left:[1,[0.17,0.03,0.02]],right:[-1,[-0.17,0.03,0.15]]};         /* [arm, point on the board] */
+/* how the body folds for each grab: hip swing f and knee bend b (knees to the chest), torso lean, how far the skis or board tip up
+   (negative lifts the nose), and a twist of the shoulders. Tuned so the reaching hand really arrives at the grab point. */
+const GRAB_POSE={
+  ski:{up:{f:-1.9,b:2.7,lean:0.9,pitch:-0.4,twist:0},down:{f:-1.3,b:3.0,lean:0.2,pitch:0.7,twist:-0.4},left:{f:-1.9,b:2.7,lean:1.2,pitch:-0.1,twist:0},right:{f:-1.9,b:2.7,lean:1.2,pitch:-0.1,twist:0}},
+  board:{up:{f:-1.9,b:2.7,lean:1.0,pitch:-0.35,twist:-0.2},down:{f:-1.9,b:2.7,lean:0.9,pitch:0.6,twist:0.2},left:{f:-1.9,b:2.7,lean:1.15,pitch:-0.05,twist:0},right:{f:-1.9,b:2.7,lean:1.2,pitch:-0.05,twist:-0.6}}
+};
+/* bend the body for this frame: knees and hips, torso lean, arms, and the skis or board under the feet */
+function poseBody(R,S,dt,sp){
+  const walking=!!S.walk,brd=!!R.board&&!walking,crash=S.crash>0,air=!S.grounded&&!walking&&!crash;
+  const grab=(air&&S.grab)?(S.sw?SWAP_GRAB[S.grab]:S.grab):null;   /* the model is turned around in switch, so the grab sides swap */
+  const k=Math.min(1,dt*12),Q=R.pose;
+  R.ph+=(walking?Math.min(sp,6.5)*3.3:(S.grounded&&!crash?clamp(sp*0.2,0,5.2):0))*dt;   /* stride phase */
+  /* legs: hip swing f (negative brings the knee forward) and knee bend b (positive folds the shin back) */
+  const crouch=crash?0.6:clamp(0.32+S.load*0.55+S.tuck*0.4+S.brake*0.25,0,1.2),GP_=grab?GRAB_POSE[brd?'board':'ski'][grab]:null;
   for(const sd of [-1,1]){
-    const lg=R.legG[sd];
-    let tgt=brd?0:amp*Math.sin(R.ph+(sd===1?0:Math.PI));
-    if(air&&!brd)tgt=-0.3;                 /* legs tuck up and back in the air */
-    lg.rotation.x+=(tgt-lg.rotation.x)*kk;
-    if(brd){lg.position.set(0,0.86,0.33*sd);lg.rotation.y=1.4;}else{lg.position.set(0.17*sd,0.86,0.06);lg.rotation.y=0;}
-    const a=lg.rotation.x,sg=R.skiG[sd];
-    sg.position.set(0,0.86*(1-Math.cos(a)),-0.86*Math.sin(a));
-    sg.visible=!walking&&!brd;
+    const i=sd===1?1:0,ph=R.ph+(sd===1?0:Math.PI);let f,b;
+    if(walking){const s=Math.sin(ph),amp=0.55*clamp(sp/2.5,0,1);f=-0.05-amp*s;b=0.12+amp*1.3*Math.max(0,s);}
+    else if(GP_){f=GP_.f;b=GP_.b;}                                  /* grabbing: knees up so the ski or board comes to the hand */
+    else if(air){f=-0.75;b=1.2;}
+    else{f=-crouch;b=2*crouch;if(!brd)f+=0.1*clamp((sp-2)/9,0,1)*Math.sin(ph);}   /* knees bent, feet under the hips */
+    Q.f[i]+=(f-Q.f[i])*k;Q.b[i]+=(b-Q.b[i])*k;
+    const hip=R.legG[sd];hip.rotation.set(Q.f[i],0,(brd?0.2:0.03)*sd);
+    hip.userData.knee.rotation.x=Q.b[i];hip.userData.ankle.rotation.x=-(Q.f[i]+Q.b[i]);   /* keep the boot level */
   }
-  R.gp.board.visible=brd;
-  R.upper.rotation.y+=((brd?1.2:0)-R.upper.rotation.y)*kk;
+  /* hips: on the snow they drop as the knees bend, so the feet stay on the ground; in the air the feet come up to the body instead */
+  const drop=i=>(THIGH*Math.cos(Q.f[i])+SHIN*Math.cos(Q.f[i]+Q.b[i]))*Math.cos(brd?0.2:0.03);
+  Q.airK+=((air?1:0)-Q.airK)*Math.min(1,dt*8);
+  R.pelvis.position.y=lerp(Math.max(drop(0),drop(1))+SOLE,STAND_HIP-0.06,Q.airK);
+  Q.yaw+=((brd?1.45:0)-Q.yaw)*k;R.pelvis.rotation.y=Q.yaw;           /* on a board the hips turn sideways */
+  /* torso: lean forward to tuck or reach, back to brake; on a board the shoulders open a little toward the nose */
+  let lean,twist=brd?-0.3:0;
+  if(walking)lean=0.06;else if(crash)lean=0.5;
+  else if(GP_){lean=GP_.lean;twist+=GP_.twist;}
+  else if(air)lean=0.3;
+  else lean=(S.sw&&!brd?0.1-0.3*S.tuck:0.15+0.45*S.tuck)+0.35*S.load-0.2*S.brake;
+  Q.lean+=(lean-Q.lean)*k;Q.twist+=(twist-Q.twist)*k;
+  R.upper.rotation.set(Q.lean,Q.twist,0);
+  R.upper.position.y=0.08+(walking?0.02*Math.abs(Math.sin(R.ph)):0);
+  /* put the skis (or the board) under the feet; they tip up into the hand for nose and tail grabs */
+  R.group.updateMatrixWorld(true);
+  soleLocal(R,-1,_ft[0]);soleLocal(R,1,_ft[1]);
+  const pitch=GP_?GP_.pitch:(air?-0.1:0);
+  Q.pitch+=(pitch-Q.pitch)*k;
+  for(const sd of [-1,1]){const sg=R.skiG[sd];sg.position.copy(_ft[sd===1?1:0]);sg.rotation.set(Q.pitch,0,0);sg.visible=!walking&&!brd;}
+  const bd=R.gp.board;bd.position.addVectors(_ft[0],_ft[1]).multiplyScalar(0.5);bd.rotation.set(Q.pitch,0,0);bd.visible=brd;
+  /* arms: the grabbing hand reaches the ski or board, the other arm goes out for balance */
+  const ka=Math.min(1,dt*16);let gArm=0;
+  if(grab){
+    if(brd){const g=GRAB_BOARD[grab];gArm=g[0];bd.updateMatrix();_v1.fromArray(g[1]).applyMatrix4(bd.matrix);}
+    else{const g=GRAB_SKI[grab];gArm=g[0];const sg=R.skiG[g[1]];sg.updateMatrix();_v1.fromArray(g[2]).applyMatrix4(sg.matrix);}
+    reachTo(R,gArm,_v1,ka);
+  }
+  for(const sd of [-1,1]){
+    if(sd===gArm)continue;
+    if(walking){const s=Math.sin(R.ph+(sd===1?Math.PI:0))*clamp(sp/2.5,0,1);armPose(R,sd,0.5*s,0.1,-0.25,ka);}
+    else if(crash)armPose(R,sd,-1.3+Math.sin(S.crashT*9+sd)*0.6,0.9,-0.3,ka);
+    else if(grab)armPose(R,sd,-0.5,1.0,-0.2,ka);
+    else if(air)armPose(R,sd,-0.35,0.75,-0.4,ka);
+    else if(brd)armPose(R,sd,0.05,0.45,-0.45,ka);
+    else armPose(R,sd,-0.45,0.18,-0.85,ka);                         /* skiing: hands forward, poles ready */
+  }
   R.poles.forEach(m=>{m.visible=!walking&&!brd;});
-  return amp;
+  if(gArm&&!brd)R.arms[gArm].userData.pole.forEach(m=>{m.visible=false;});   /* the grabbing hand lets its pole trail */
 }
 /* poses one rider model from a state object (the local P, or a remote rider's smoothed state). Returns ground speed. */
 function poseRider(R,S,dt){
@@ -420,22 +537,7 @@ function poseRider(R,S,dt){
   G.position.set(S.x,S.y,S.z);
   _v1.copy(_c).applyQuaternion(_qb);_v2.copy(_c).applyQuaternion(G.quaternion);
   G.position.add(_v1).sub(_v2);
-  const amp=animateLegs(R,S,dt,sp);
-  /* pose: crouch when loading, lean toward the direction of travel, sit back to brake, reach for grabs */
-  G.scale.set(1.12,1.12*(1-0.15*S.load),1.12);
-  const walking=!!S.walk,bob=walking?0.035*Math.abs(Math.sin(R.ph)):0;
-  R.upper.position.y=0.9-S.load*0.12+bob;
-  const lean=S.tuck*0.55-S.brake*0.25+S.load*0.5;
-  let ut=(S.sw?0.1-lean*0.6:0.12+lean)+(S.grounded?0:-0.1),al=-0.8,ar=-0.8;
-  if(walking){ut=0.08;al=-0.12+0.55*Math.sin(R.ph+Math.PI);ar=-0.12+0.55*Math.sin(R.ph);}
-  else if(S.grab){
-    ut=0.85;
-    const gr=S.sw?SWAP_GRAB[S.grab]:S.grab;   /* the model is turned around in switch, so the grab sides swap */
-    if(gr==='left'){al=0.15;}else if(gr==='right'){ar=0.15;}else if(gr==='up'){al=ar=-1.5;}else{al=ar=0.6;}
-  }
-  const kp=Math.min(1,dt*14);
-  R.upper.rotation.x+=(ut-R.upper.rotation.x)*kp;
-  R.parts['arm1'].rotation.x+=(al-R.parts['arm1'].rotation.x)*kp;R.parts['arm-1'].rotation.x+=(ar-R.parts['arm-1'].rotation.x)*kp;
+  poseBody(R,S,dt,sp);
   /* shadow */
   const gy=H(S.x,S.z);R.shadowWrap.position.set(S.x,gy+0.1,S.z);
   _q.setFromUnitVectors(_Y,_n);R.shadowWrap.quaternion.copy(_q);
@@ -457,6 +559,8 @@ function updateSkier(dt){
           _x.x*s*(1.5+Math.random()*2.5)+(Math.random()-0.5)*1.5,1.5+Math.random()*2.5,_x.z*s*(1.5+Math.random()*2.5)+(Math.random()-0.5)*1.5,0.7,0.5);
       }
     }
+    /* blowing snow in the wind */
+    if(WASH&&windNow>1.5&&Math.random()<windNow*0.3)spray.emit(P.x+(Math.random()-0.5)*18,P.y+Math.random()*3,P.z+(Math.random()-0.5)*18,WIND_DIR.x*windNow*3,0.3,WIND_DIR.z*windNow*3,1.2,0.45);
     if(!P.walk&&lost&&sp>3){
       const ac=hexRGB(accent);
       for(const s of [-1,1]){

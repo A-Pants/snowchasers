@@ -61,7 +61,7 @@ function drawMini(dt){
   mctx.fillStyle='rgba(9,21,36,0.62)';mctx.fillRect(0,0,w,h);
   const mx=x=>(300-clamp(x,-300,300))/600*w,my=z=>(1-(z+320)/2080)*h;
   mctx.fillStyle='rgba(255,255,255,0.08)';mctx.fillRect(mx(240),0,mx(-240)-mx(240),h);
-  if(!TUTORIAL){mctx.fillStyle='rgba(70,160,215,0.6)';mctx.fillRect(0,0,w,my(WATER_Y!==null?1628:FINISH_Z));}   /* the lake */
+  if(WATER_Y!==null){mctx.fillStyle='rgba(70,160,215,0.6)';mctx.fillRect(0,0,w,my(1628));}   /* the lake */
   if(TUTORIAL&&(state.count>=4||state.mode==='race'||state.mode==='countdown'||state.unlocked)){
     mctx.strokeStyle='rgba(127,216,255,0.9)';mctx.lineWidth=2;mctx.beginPath();
     for(let z=SUMMIT_Z;z<=FINISH_Z;z+=40){const px=mx(lineX(z)),py=my(z);if(z===SUMMIT_Z)mctx.moveTo(px,py);else mctx.lineTo(px,py);}
@@ -75,10 +75,10 @@ function drawMini(dt){
     mctx.fillStyle=f.got?'rgba(255,210,122,0.25)':'#ffd27a';mctx.fillRect(-3.5,-3.5,7,7);mctx.restore();
   });
   net.remotes.forEach(e=>{if(!e.pr||e.pr.mode==='t'||mountainOfSeed(e.pr.sd)!==MOUNTAIN)return;mctx.fillStyle=hexStr(e.pr.look.c[0]);mctx.beginPath();mctx.arc(mx(e.s.x),my(e.s.z),3,0,6.3);mctx.fill();mctx.strokeStyle='rgba(255,255,255,0.85)';mctx.lineWidth=1;mctx.stroke();});
-  /* after reading the note: a dashed search circle round the hidden board. It is off-centre on purpose, so you still have to look. */
-  if(boardCache&&boardCache.visible&&state.clues.boardNote){
+  /* after reading the note: a dashed search circle round the hidden item. It is off-centre on purpose, so you still have to look. */
+  if(legendCache&&legendCache.visible&&state.clues[LEGEND.clue]){
     mctx.save();mctx.strokeStyle='rgba(255,190,90,0.95)';mctx.fillStyle='rgba(255,190,90,0.14)';mctx.lineWidth=1.5;mctx.setLineDash([3,3]);
-    mctx.beginPath();mctx.ellipse(mx(BOARD_SPOT.x+18),my(BOARD_SPOT.z-22),65*w/600,65*h/2080,0,0,6.3);mctx.fill();mctx.stroke();mctx.restore();
+    mctx.beginPath();mctx.ellipse(mx(LEGEND_SPOT.x+18),my(LEGEND_SPOT.z-22),65*w/600,65*h/2080,0,0,6.3);mctx.fill();mctx.stroke();mctx.restore();
   }
   mctx.save();mctx.translate(mx(P.x),my(P.z));mctx.rotate(-P.h);
   mctx.fillStyle='#fff';mctx.beginPath();mctx.moveTo(0,-7);mctx.lineTo(5,5);mctx.lineTo(0,2);mctx.lineTo(-5,5);mctx.closePath();mctx.fill();mctx.restore();

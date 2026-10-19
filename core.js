@@ -32,8 +32,8 @@ const COURSE_VER=1;
    runOn, runArmed   the descent timer is running / ready to start on your next push; runT is its time
    raceTok, raceMP   the id of a group race, and whether this race is a group race
    hintT             how long the controls hint has been on screen
-   clues             clues you have found for hidden items, like clues.boardNote */
-const state={mode:'title',count:0,cd:0,raceT:0,gates:0,wipes:0,unlocked:false,skis:'std',best:null,hintT:0,style:0,mult:1,comboT:0,gear:{skis:'std',jacket:'std',pants:'std',boots:'std'},have:{lost:false,apex:false,ridge:false,trail:false,board:false},clues:{},runOn:false,runArmed:true,runT:0,runBest:null,raceTok:null,raceMP:false};
+   clues             clues you have found for hidden items, like clues.boardNote (Tahoe) and clues.parkaNote (Mount Washington) */
+const state={mode:'title',count:0,cd:0,raceT:0,gates:0,wipes:0,unlocked:false,skis:'std',best:null,hintT:0,style:0,mult:1,comboT:0,gear:{skis:'std',jacket:'std',pants:'std',boots:'std'},have:{lost:false,apex:false,ridge:false,trail:false,board:false,rime:false},clues:{},runOn:false,runArmed:true,runT:0,runBest:null,raceTok:null,raceMP:false};
 /* the ski accent colour, also used for the glowing Lost Line ski trail */
 let accent=0x2f8fe0;
 

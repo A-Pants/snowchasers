@@ -147,7 +147,8 @@ function audioTick(dt){
   if(!audio)return;
   const live=state.mode==='explore'||state.mode==='race'||state.mode==='countdown';
   const sp=Math.hypot(P.vx,P.vz);
-  audio.update({speed:live?sp:0,air:live&&!P.grounded&&!P.walk,
+  audio.update({speed:live?Math.max(sp,windNow*7):0,   /* Mount Washington's gusts roar even when you stand still */
+   air:live&&!P.grounded&&!P.walk,
     carve:(live&&P.grounded&&P.crash<=0&&!P.walk)?Math.min(1,Math.abs(P.steer)*sp/28+P.brake*0.8):0,
     rotor:liftHold>0?Math.min(1,liftHold/0.7):0});
   if(P.walk&&P.grounded&&sp>0.8){const ph=Math.floor(RIDER.ph/Math.PI);if(ph!==stepPh){stepPh=ph;sfx('step');}}

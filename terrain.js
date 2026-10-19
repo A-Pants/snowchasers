@@ -12,11 +12,12 @@ const angdiff=(a,b)=>{let d=a-b;while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+
 /* the Lost Line: for a distance z down the mountain, the x position of the racing line. Gates and line jumps follow it.
    On other mountains the same curve is the main groomed run, which stays clear of trees. */
 const lineX=z=>38*Math.sin(z*0.0105)+16*Math.sin(z*0.027+1.0);
-/* z runs downhill: the summit is at -270, the normal start at 10 and the finish line at 1590. x runs across the slope.
-   At Lake Tahoe you start by the summit station and the finish is the base lodge, just above the lake shore. */
-const FINISH_Z=TUTORIAL?1590:1520, START_Z=TUTORIAL?10:-185, SUMMIT_Z=-270;
-/* how far you can go: x from -XMAX to XMAX, z from ZMIN to ZMAX (at Tahoe ZMAX stops you at the water's edge) */
-const XMAX=410, ZMIN=-312, ZMAX=TUTORIAL?1745:1605;
+/* z runs downhill and x runs across the slope. Each mountain sets where you start, where the finish line is and how far down you can go.
+   Tutorial: start at 10, finish at 1590. Lake Tahoe: start by the summit station, finish at the base lodge just above the lake shore
+   (ZMAX stops you at the water). Mount Washington: start below the summit buildings, finish at the Pinkham Notch lodge. */
+const COURSE=TUTORIAL?{start:10,finish:1590,zmax:1745}:TAHOE?{start:-185,finish:1520,zmax:1605}:{start:-245,finish:1560,zmax:1700};
+const FINISH_Z=COURSE.finish, START_Z=COURSE.start, SUMMIT_Z=-270;
+const XMAX=410, ZMIN=-312, ZMAX=COURSE.zmax;
 
 /* three jump types: small wood, big wood and cliff (rock). All share one profile: a rising ramp, a lip, then a drop. */
 const JT={
@@ -66,6 +67,9 @@ addJump('cl',610,-62,false);                       /* The Edge (map fragment II)
 [[255,-30],[500,30],[890,-30],[1270,30]].forEach(a=>placeFree('cl',a[0],lineX(a[0]-15)+a[1]));   /* risky cliffs beside the line */
 [['ws',30,40],['wb',200,-52],['ws',330,-26],['ws',460,58],['wb',700,52],['ws',830,-40],['wb',1090,-58],['ws',1220,44],['wb',1330,-46],['ws',1480,-30],['ws',560,40],['wb',1190,-20],
   ['wb',300,105],['ws',560,-105],['wb',860,125],['cl',1000,125],['ws',1160,-115],['wb',1400,105],['cl',1440,-130],['ws',150,-115],['ws',640,120],['wb',1010,-130],['cl',350,-135],['ws',930,135]].forEach(a=>placeFree(a[0],a[1],a[2]));   /* free ride */
+} else if(WASH){
+  /* Mount Washington has no built jumps either: just a few rock bands to drop off, away from the main line */
+  [[140,120],[230,-140],[1050,-115],[1250,125],[960,150]].forEach(a=>addJump('cl',a[0],a[1],false));
 } else {
   /* Lake Tahoe has no built jumps, only natural granite drops away from the groomed run */
   [[120,-125],[300,140],[545,-75],[820,170],[1050,-150],[1250,95],[690,-210],[400,230]].forEach(a=>addJump('cl',a[0],a[1],false));
@@ -82,7 +86,8 @@ function kick(k,x,z){
 }
 /* the snow height at x,z before the landmark pads are levelled: one long slope, a valley shape, gentle bumps and the jumps */
 function rawH(x,z){
-  if(!TUTORIAL)return tahoeH(x,z);
+  if(TAHOE)return tahoeH(x,z);
+  if(WASH)return washH(x,z);
   const a=-0.31*z,b=-500;
   const base=0.5*(a+b+Math.sqrt((a-b)*(a-b)+2500));
   const ax=Math.abs(x);
@@ -109,10 +114,46 @@ function tahoeH(x,z){
   h+=smooth(-285,-312,z)*90;                                               /* the ridge behind the summit */
   return h;
 }
+/* Mount Washington: the rocky summit cone, the gentle Alpine Garden, the steep headwall of Tuckerman Ravine, the bowl floor
+   between cliff walls (Lion Head on the left, Boott Spur on the right), then the long forested valley down to Pinkham Notch.
+   WASH_LINE is the height down the middle of the run at each z, smoothed into a curve. */
+const WASH_LINE=[[-340,282],[-280,305],[-150,240],[0,172],[180,146],[340,122],[390,104],[450,50],[520,-12],[580,-44],[700,-78],[820,-112],[1000,-196],[1300,-330],[1560,-452],[1700,-490],[1900,-512]];
+function washLine(z){
+  const T=WASH_LINE,n=T.length;
+  if(z<=T[0][0])return T[0][1]-(T[0][0]-z)*0.6;
+  if(z>=T[n-1][0])return T[n-1][1]-(z-T[n-1][0])*0.05;
+  let i=0;while(z>T[i+1][0])i++;
+  const p0=T[Math.max(0,i-1)],p1=T[i],p2=T[i+1],p3=T[Math.min(n-1,i+2)],dz=p2[0]-p1[0],t=(z-p1[0])/dz;
+  const m1=(p2[1]-p0[1])/(p2[0]-p0[0])*dz,m2=(p3[1]-p1[1])/(p3[0]-p1[0])*dz,t2=t*t,t3=t2*t;   /* a smooth curve through the points */
+  return (2*t3-3*t2+1)*p1[1]+(t3-2*t2+t)*m1+(-2*t3+3*t2)*p2[1]+(t3-t2)*m2;
+}
+function washH(x,z){
+  const ax=Math.abs(x);
+  /* the headwall curves round like an amphitheatre: toward the sides the drop starts higher up, joining the cliff walls */
+  let h=washLine(z+0.0035*x*x*smooth(300,420,z)*(1-smooth(900,1100,z)));
+  h-=0.35*ax*(1-smooth(-140,40,z));                                          /* the summit cone falls away to the sides */
+  h+=10*Math.exp(-((x-10)*(x-10)+(z+282)*(z+282))/2500);                     /* the summit itself, the highest point */
+  /* Tuckerman Ravine: below the lip the floor drops away while the rims stay high, leaving cliff walls either side of the bowl */
+  const walls=smooth(350,430,z)*(1-smooth(900,1120,z));
+  if(walls>0){
+    const rim=washLine(Math.min(z,360))-0.32*Math.max(0,z-360)+(x<0?25:0); /* the walls drop toward the mouth of the bowl; Boott Spur (right) stands a little higher than Lion Head */
+    const wf=lerp(60,130,smooth(380,760,z));                                 /* the bowl widens below the headwall */
+    h+=Math.max(0,rim-h)*walls*smooth(wf,wf+70,ax);
+  }
+  h+=ax*ax/57600*40+40*smooth(250,480,ax);                                   /* the valley sides */
+  const top=1-smooth(500,800,z),fade=smooth(1750,1500,z)*(0.25+0.75*smooth(-250,-120,z));   /* calmer right at the summit so the buildings are not hidden */
+  h+=(Math.sin(x*0.05+z*0.023)*4+Math.sin(x*0.13-z*0.06)*1.6+Math.sin(z*0.04+0.7)*3+Math.sin(x*0.024+z*0.014)*6)*(0.5+0.5*top)*fade;   /* bumps, rockier above treeline */
+  h+=(Math.sin(x*0.21+z*0.17)*Math.sin(z*0.19-x*0.13))*1.2*top;              /* boulder-field lumps */
+  for(let i=0;i<JUMPS.length;i++) h+=kick(JUMPS[i],x,z);
+  return h;
+}
 /* the lake's surface height (only used at Tahoe) */
-const WATER_Y=TUTORIAL?null:tahoeH(0,1628);
+const WATER_Y=TAHOE?tahoeH(0,1628):null;
 /* flat pads so buildings sit level. Tutorial: the outpost, the shelter and the cave. Tahoe: the summit station, a mid-mountain hut, the base lodge and the hidden board cache. */
-const PADS=TUTORIAL?[{x:68,z:240,r:11},{x:-92,z:960,r:15},{x:98,z:1350,r:9}]:[{x:42,z:-222,r:10},{x:-140,z:760,r:9},{x:70,z:1548,r:14},{x:-258,z:1010,r:6}];
+/* Mount Washington: the summit buildings, the Hermit Lake shelters, the Pinkham Notch lodge, the hidden parka and frozen Hermit Lake. */
+const PADS=TUTORIAL?[{x:68,z:240,r:11},{x:-92,z:960,r:15},{x:98,z:1350,r:9}]
+  :TAHOE?[{x:42,z:-222,r:10},{x:-140,z:760,r:9},{x:70,z:1548,r:14},{x:-258,z:1010,r:6}]
+  :[{x:10,z:-282,r:16},{x:-70,z:860,r:10},{x:60,z:1500,r:14},{x:225,z:290,r:6},{x:40,z:820,r:24}];
 PADS.forEach(p=>{p.h=rawH(p.x,p.z);});
 /* H(x,z) is the height of the snow at any point. Almost everything uses it: physics, trees, the camera, the minimap. */
 function H(x,z){
@@ -121,6 +162,7 @@ function H(x,z){
     const p=PADS[i],d=Math.hypot(x-p.x,z-p.z);
     if(d<p.r+12){ h+=(p.h-h)*smooth(p.r+12,p.r,d); }
   }
+  if(WASH){const d=Math.hypot(x-40,z-820);if(d<20)h-=4*(1-smooth(12,20,d));}   /* the hollow of Hermit Lake */
   return h;
 }
 /* grad(x,z,o) writes the slope at x,z into o.x and o.z (how fast the snow rises in each direction). _g is a shared scratch object for it. */

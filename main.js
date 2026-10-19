@@ -32,14 +32,14 @@ function loadSave(){
   const o=readSaveRaw();if(!o)return false;
   try{
     const hv=(o.have&&typeof o.have==='object')?o.have:{};
-    ['lost','apex','ridge','trail','board'].forEach(k=>{state.have[k]=hv[k]===true;});
+    ['lost','apex','ridge','trail','board','rime'].forEach(k=>{state.have[k]=hv[k]===true;});
     state.unlocked=state.have.lost;
     SLOTS.forEach(sl=>{const id=o.gear&&o.gear[sl[0]];if(OK_ITEM[sl[0]].indexOf(id)>=0&&(id==='std'||state.have[id]))state.gear[sl[0]]=id;});
     ['jacket','pants','boots','skis'].forEach(k=>{const v=o.pal&&+o.pal[k];if(Number.isFinite(v)&&PALETTE[k].list.indexOf(v)>=0){PALETTE[k].cur=v;if(k==='skis')accent=v;}});
     state.style=Math.max(0,+o.style||0);
     if(Array.isArray(o.frags))FR.forEach((f,i)=>{f.got=o.frags[i]===true;if(f.got)fragObjs[i].g.visible=false;});
     state.count=FR.filter(f=>f.got).length;
-    if(o.clues&&typeof o.clues==='object')state.clues={boardNote:o.clues.boardNote===true};
+    if(o.clues&&typeof o.clues==='object')state.clues={boardNote:o.clues.boardNote===true,parkaNote:o.clues.parkaNote===true};
     if(o.opt){
       if(Number.isFinite(+o.opt.music))opt.music=clamp(+o.opt.music,0,1);
       if(Number.isFinite(+o.opt.sfx))opt.sfx=clamp(+o.opt.sfx,0,1);
@@ -74,8 +74,8 @@ function armReset(btn){
 /* put everything back to a fresh start, in place, so the demo can be run again */
 function resetProgress(){
   clearTimeout(saveTimer);store.del(SAVE_KEY);
-  state.have={lost:false,apex:false,ridge:false,trail:false,board:false};state.unlocked=false;
-  if(boardCache)boardCache.visible=true;
+  state.have={lost:false,apex:false,ridge:false,trail:false,board:false,rime:false};state.unlocked=false;
+  if(legendCache)legendCache.visible=true;
   state.gear={skis:'std',jacket:'std',pants:'std',boots:'std'};
   ['jacket','pants','boots','skis'].forEach(k=>{PALETTE[k].cur=PAL_DEFAULT[k];});accent=PAL_DEFAULT.skis;
   state.style=0;state.mult=1;state.comboT=0;state.best=null;state.runBest=null;state.count=0;state.wipes=0;
@@ -333,17 +333,17 @@ function startGame(){
   if(audio&&audio.ctx.state==='suspended')audio.ctx.resume();
   fragGroup.visible=true;snapCamera();state.hintT=0;
   if(TUTORIAL)toast('Find the four map fragments','Look for the golden beams. Double-tap any panel to shrink it to an icon.',4600);
-  else toast(MTN.name,'Ski down to the lake. Hold Backspace (or the helicopter button) to ride back up.',4600);
+  else toast(MTN.name,MTN.welcome,4600);
 }
 $('startBtn').addEventListener('click',startGame);
 $('skipBtn').addEventListener('click',()=>{startGame();skipToFinale();});
 
 /* last: when the previous frame ran. tAnim: a clock for idle animations. lastCountN: the last countdown number that beeped. */
-let last=performance.now(),tAnim=0,lastCountN=99,hutNoteShown=false,noticeSeen=false,senseBand=0,senseOp=0;
-/* read the note about the hidden board: show it, remember it, and mark the search area on the minimap */
-function readBoardNote(where){
-  toast(where,'"Left my old board in the granite under the dead pine with the red rag. Ski the right side of the run, well past the warming hut, and look for the glint above the trees." R.',9000);
-  if(!state.clues.boardNote){state.clues.boardNote=true;saveSoon();setTimeout(()=>callout('Search area marked on your map',1800),2200);}
+let last=performance.now(),tAnim=0,lastCountN=99,windHint=false,hutNoteShown=false,noticeSeen=false,senseBand=0,senseOp=0;
+/* read the note about this mountain's hidden item: show it, remember it, and mark the search area on the minimap */
+function readLegendNote(where){
+  toast(where,LEGEND.note,9000);
+  if(!state.clues[LEGEND.clue]){state.clues[LEGEND.clue]=true;saveSoon();setTimeout(()=>callout('Search area marked on your map',1800),2200);}
 }
 /* react to what the physics reported this frame: sounds, snow spray, a camera dip, trick names and scores */
 function processEvents(ev){
@@ -401,22 +401,23 @@ function update(dt){
       if(state.runOn){state.runT+=dt;$('timer').innerHTML=fmt(state.runT)+'<small>Descent time'+ghostSuffix()+'</small>';}
       if(pz<FINISH_Z&&P.z>=FINISH_Z){if(P.walk)toast('Base lodge reached','Press E to put your skis back on.',2000);else onBaseReached();}
       state.hintT+=dt;if(state.hintT>16)$('hints').classList.add('fade');
-      if(boardRag)boardRag.rotation.x=0.25*Math.sin(tAnim*3.1)+0.1*Math.sin(tAnim*7.3);   /* the rag flaps in the wind */
-      if(boardCache&&boardCache.visible){
-        boardCache.userData.glow.intensity=0.7+0.4*Math.sin(tAnim*2);   /* the glow breathes slowly */
-        const d=Math.hypot(P.x-BOARD_SPOT.x,P.z-BOARD_SPOT.z);
+      if(WASH&&!windHint&&windNow>3.6&&SKI.wind>0.5){windHint=true;toast('Fierce wind','Mount Washington has some of the strongest winds on Earth. Gusts above treeline push you around.',4200);}
+      if(legendRag)legendRag.rotation.x=0.25*Math.sin(tAnim*3.1)+0.1*Math.sin(tAnim*7.3);   /* the rag flaps in the wind */
+      if(legendCache&&legendCache.visible){
+        legendCache.userData.glow.intensity=0.7+0.4*Math.sin(tAnim*2);   /* the glow breathes slowly */
+        const d=Math.hypot(P.x-LEGEND_SPOT.x,P.z-LEGEND_SPOT.z);
         if(Math.hypot(P.x-NOTICE_SPOT.x,P.z-NOTICE_SPOT.z)<18)noticeSeen=true;   /* you passed the notice board */
         /* the glint twinkles and grows with distance so it shows from the run, and fades out once you are close */
-        boardGlint.material.opacity=(0.55+0.45*Math.sin(tAnim*5)*Math.sin(tAnim*1.7))*smooth(18,45,d);
-        const gs=clamp(3+d*0.035,3,9);boardGlint.scale.set(gs,gs,1);
+        legendGlint.material.opacity=(0.55+0.45*Math.sin(tAnim*5)*Math.sin(tAnim*1.7))*smooth(18,45,d);
+        const gs=clamp(3+d*0.035,3,9);legendGlint.scale.set(gs,gs,1);
         /* getting warmer: a chime each time you get closer (60 m, 35 m, 15 m) and a golden shimmer round the screen */
         const band=d<15?3:(d<35?2:(d<60?1:0));
         if(band>senseBand)sfx('sense',band);
         senseBand=band;senseOp=(1-smooth(12,60,d))*(0.42+0.13*Math.sin(tAnim*3));
-        if(d<(P.walk?4.5:3.2))findBoard();
+        if(d<(P.walk?4.5:3.2))findLegend();
         /* the clue: a note on the notice board at the top, and the same note on the warming hut door for anyone who skied past it */
-        else if(!hutNoteShown&&noticeSeen&&state.hintT>4.8){hutNoteShown=true;readBoardNote('A note on the notice board');}   /* shown once the welcome message has gone */
-        else if(!hutNoteShown&&Math.hypot(P.x-PADS[1].x,P.z-PADS[1].z)<10){hutNoteShown=true;readBoardNote('A note pinned to the hut door');}
+        else if(!hutNoteShown&&noticeSeen&&state.hintT>4.8){hutNoteShown=true;readLegendNote('A note on the notice board');}   /* shown once the welcome message has gone */
+        else if(!hutNoteShown&&Math.hypot(P.x-PADS[1].x,P.z-PADS[1].z)<10){hutNoteShown=true;readLegendNote(LEGEND.hut);}
       }
     } else {
       /* racing: run the clock, check each gate as you pass it, and finish at the line */
@@ -498,7 +499,7 @@ resize();setupMini();
 placePlayer(0,START_Z,0);snapCamera();
 fragObjs.forEach(o=>{o.g.visible=true;});
 loadSave();
-if(boardCache&&state.have.board)boardCache.visible=false;
+if(legendCache&&state.have[LEGEND.id])legendCache.visible=false;
 applyGear();refreshTitleSave();saveInfoRefresh();
 camera.position.copy(camPos);camera.lookAt(P.x,P.y+1.8,P.z+7);
 requestAnimationFrame(frame);

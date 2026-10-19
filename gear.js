@@ -10,7 +10,8 @@ const ITEMS={
         {id:'lost',name:'Lost Line skis',stat:'More speed, tighter turns and +35% trick score, but landings are unforgiving.',lock:'Finish the Lost Line race.'},
         {id:'board',name:'The Tahoe Legend',rarity:'legendary',hidden:true,stat:'Legendary snowboard. Spins 20% faster and +25% trick score, steadier landings, but slow to push on flat ground.'}],
   jacket:[{id:'std',name:'Trail jacket',stat:'Balanced.'},
-        {id:'apex',name:'Apex Shell',stat:'+15% trick score, a little more drag from the hood.',lock:'Land tricks and build up your style.'}],
+        {id:'apex',name:'Apex Shell',stat:'+15% trick score, a little more drag from the hood.',lock:'Land tricks and build up your style.'},
+        {id:'rime',name:'The Rime Parka',rarity:'legendary',hidden:true,stat:'Legendary parka. Blocks 70% of the wind on Mount Washington and softens landings. It will keep you warm when the cold comes.'}],
   pants:[{id:'std',name:'Trail pants',stat:'Balanced.'},
         {id:'ridge',name:'Ridge pants',stat:'Tighter carving, a little more drag from the baggy legs.',lock:'Keep building your style.'}],
   boots:[{id:'std',name:'Trail boots',stat:'Balanced.'},
@@ -44,13 +45,14 @@ function applyGear(){
   setRiderLook(RIDER,currentLook());
   const rid=g.pants==='ridge',tb=g.boots==='trail',lost=g.skis==='lost',board=g.skis==='board';
   /* each item trades something for something, and appearance never changes performance */
-  let drag=1,turn=1,tolM=1,style=1,push=1,spin=1;
+  let drag=1,turn=1,tolM=1,style=1,push=1,spin=1,wind=1;
   if(lost){drag*=0.9;turn*=1.12;tolM*=0.7;style*=1.35;}
   if(board){turn*=1.06;tolM*=1.15;style*=1.25;push*=0.6;spin*=1.2;}
   if(g.jacket==='apex'){style*=1.15;drag*=1.03;}
+  if(g.jacket==='rime'){wind*=0.3;tolM*=1.08;drag*=1.03;}
   if(rid){turn*=1.08;drag*=1.03;}
   if(tb){push*=1.35;tolM*=1.1;turn*=0.97;}
-  SKI.drag=drag;SKI.turn=turn;SKI.tol=0.6*tolM;SKI.style=style;SKI.push=push;SKI.hop=1;SKI.spin=spin;
+  SKI.drag=drag;SKI.turn=turn;SKI.tol=0.6*tolM;SKI.style=style;SKI.push=push;SKI.hop=1;SKI.spin=spin;SKI.wind=wind;
   SKI.armor=0;   /* future armor items raise this (0 to 1) to cut the chance that a hit wipes you out */
   refreshGear();saveSoon();
 }
@@ -113,13 +115,13 @@ function grantItem(slot,id,defColor){
   return true;
 }
 /* after every trick: hand out the style rewards once the totals are reached */
-/* walking or riding into the hidden board cache at Lake Tahoe */
-function findBoard(){
-  if(!grantItem('skis','board'))return;
-  if(boardCache)boardCache.visible=false;
+/* walking or riding into this mountain's hidden legendary item (see LEGEND in world.js) */
+function findLegend(){
+  if(!LEGEND||!grantItem(LEGEND.slot,LEGEND.id,LEGEND.color))return;
+  if(legendCache)legendCache.visible=false;
   sfx('collect');saveSoon();
-  queueUnlock({legend:true,kick:'Legendary find',slot:'New snowboard',icon:'board',title:'The Tahoe Legend',
-    body:'A board someone left in the granite years ago, still waxed. It is already strapped on. Swap back to skis any time in Gear.',stat:ITEMS.skis[2].stat});
+  const it=ITEMS[LEGEND.slot].find(i=>i.id===LEGEND.id);
+  queueUnlock(Object.assign({legend:true,kick:'Legendary find',stat:it.stat},LEGEND.unlock));
 }
 function checkStyleUnlocks(){
   if(!TUTORIAL)return;   /* these style rewards belong to the tutorial */
