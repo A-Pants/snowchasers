@@ -39,7 +39,23 @@ const MOUNTAINS={
       'Rime ice forms when freezing fog blows across the summit. It grows into feathers of ice that point into the wind, sometimes more than a metre long.',
       'The Abenaki people called the mountain Agiocochook. The Mount Washington Auto Road, opened in 1861, is one of the oldest tourist attractions in the United States.'
     ]},
-  yellowstone:{id:'yellowstone',name:'Yellowstone',region:'Rocky Mountains, Wyoming, Montana and Idaho, USA',world:1,lat:44.43,lon:-110.59,playable:false,soon:true}
+  yellowstone:{id:'yellowstone',name:'Yellowstone',region:'Mount Washburn, Yellowstone National Park, Wyoming, USA',world:1,lat:44.80,lon:-110.43,playable:true,
+    needs:'rime',needText:'Winter in Yellowstone can drop below -40 degrees. Find the Rime Parka on Mount Washington before you go.',
+    blurb:'Ski off Mount Washburn on the rim of the supervolcano, down through the lodgepole pines to steaming hot springs above the Grand Canyon of the Yellowstone.',
+    welcome:'Ski down to the steaming hot springs. Stay out of the pools, and time the geyser.',
+    stats:[['Mount Washburn','3,122 m (10,243 ft)'],['The caldera','about 45 x 72 km (30 x 45 mi)'],['Hot springs, geysers and vents','more than 10,000']],
+    facts:[
+      'Yellowstone became the first national park in the world in 1872.',
+      'Yellowstone sits on a supervolcano. Its last giant eruption, about 640,000 years ago, made the ground collapse into a caldera roughly 45 by 72 km (30 by 45 miles).',
+      'The park has more than 10,000 hydrothermal features, including more than 500 geysers: about half of all the geysers in the world.',
+      'The bright colours of hot springs like Grand Prismatic Spring come from heat-loving microbes. Each kind lives at a different water temperature, so the colours form rings.',
+      'Old Faithful erupts roughly every 60 to 110 minutes, shooting boiling water up to about 55 m (180 ft) high.',
+      'The Lower Falls of the Yellowstone River drop 94 m (308 ft), nearly twice the height of Niagara Falls. In winter a huge cone of ice builds up at the bottom.',
+      'The yellow and orange walls of the Grand Canyon of the Yellowstone are rhyolite, a volcanic rock softened and coloured by hot water seeping through it.',
+      'Yellowstone is the only place in the United States where bison have lived continuously since prehistoric times. In winter they gather where hot ground keeps the snow thin.',
+      'The coldest temperature ever recorded in Yellowstone was -54 C (-66 F), at the Riverside ranger station in 1933.',
+      'Mount Washburn still has a fire lookout on its summit, staffed in summer. From the top you can see most of the caldera and Yellowstone Lake.'
+    ]}
 };
 /* famous peaks shown on the globe as locked pins, ready to become playable mountains later */
 const GLOBE_LOCKED=[
@@ -50,7 +66,7 @@ const GLOBE_LOCKED=[
 /* the mountain loaded on this page. Anything unknown or not playable yet falls back to the tutorial. */
 const MOUNTAIN=(function(){const id=store.get('snowchasers.mountain');return(MOUNTAINS[id]&&MOUNTAINS[id].playable)?id:'lostline';})();
 const MTN=MOUNTAINS[MOUNTAIN];
-const TUTORIAL=MOUNTAIN==='lostline',TAHOE=MOUNTAIN==='tahoe',WASH=MOUNTAIN==='washington';
+const TUTORIAL=MOUNTAIN==='lostline',TAHOE=MOUNTAIN==='tahoe',WASH=MOUNTAIN==='washington',YELL=MOUNTAIN==='yellowstone';
 /* SEED_ID tags saved times, ghosts and leaderboards. The tutorial keeps its original ids so old saves still match;
    other mountains are prefixed with their id, like "tahoe:1337.1". */
 const SEED_ID=(TUTORIAL?'':MOUNTAIN+':')+GAME_SEED+'.'+COURSE_VER;
@@ -59,6 +75,7 @@ const mountainOfSeed=sd=>{const i=String(sd||'').indexOf(':');return i>0?sd.slic
 /* switch mountains: remember the choice and reload. The title screen then shows the new place's card while you get ready. */
 function travelTo(id){
   if(!MOUNTAINS[id]||!MOUNTAINS[id].playable)return;
+  if(MOUNTAINS[id].needs&&!state.have[MOUNTAINS[id].needs])return;   /* some places need gear first (Yellowstone needs a warm parka) */
   store.set('snowchasers.mountain',id);
   try{window.location.reload();}catch(err){}
 }

@@ -35,6 +35,22 @@ function applyWind(dt){
   const f=windNow*SKI.wind*(P.grounded?1:1.4);
   P.vx+=WIND_DIR.x*f*dt;P.vz+=WIND_DIR.z*f*dt;
 }
+/* Q, the 180 button or the gamepad's X: spin round on the snow and ride the other way (switch on skis, fakie on a board).
+   Only on the ground. The stance flips at once and visSpin starts at half a turn, so the model swings round smoothly as visSpin
+   settles back to zero (it eases out on the ground, see stepPlayer). */
+let spinCool=0;
+function groundSpin(){
+  if(P.walk||!P.grounded||P.crash>0||spinCool>0)return false;
+  P.sw=!P.sw;P.visSpin=P.sw?Math.PI:-Math.PI;spinCool=0.45;
+  return true;
+}
+/* Yellowstone's geyser blasting you into the air. On skis or a board it works like a huge hop, so flips and spins are ready at once. */
+function geyserLaunch(power){
+  if(P.crash>0)return false;
+  P.vy=P.walk?power*0.6:power;P.grounded=false;P.coyote=0;P.airTime=0;
+  if(!P.walk){resetTrick();P.swTake=P.sw;P.armF=true;P.armS=true;}
+  return true;
+}
 function resetTrick(){P.flip=P.spin=P.fv=P.sv=0;P.grab=null;P.grabs.up=P.grabs.down=P.grabs.left=P.grabs.right=0;P.grabT=0;}
 /* put the skier at x,z facing h, standing still, with everything reset */
 function placePlayer(x,z,h){
@@ -133,6 +149,7 @@ function walkStep(dt,inp,ev){
         rx,ry = right stick (ry down = load, flick up = hop; in the air = grabs) */
 function stepPlayer(dt,inp,ev){
   if(P.grace>0)P.grace-=dt;
+  if(spinCool>0)spinCool-=dt;
   if(P.crash>0){
     P.crash-=dt;P.crashT+=dt;
     const k=Math.exp(-1.2*dt);P.vx*=k;P.vz*=k;
@@ -302,7 +319,7 @@ function joint(parent,x,y,z){const g=new THREE.Group();g.position.set(x,y,z);par
 function makeRider(){
   const mats={jacket:M(0xe8553d),accent:new THREE.MeshLambertMaterial({color:0x2f8fe0}),pants:M(0x25313f),boot:M(0x161d28),
     trim:new THREE.MeshLambertMaterial({color:0xf2f7fb,emissive:0x1d2630}),skiBase:M(0x2c3440),stripe:new THREE.MeshBasicMaterial({color:0x39d0ff}),
-    glove:M(0x1b222c),pole:M(0x8d97a3)};
+    glove:M(0x1b222c),pole:M(0x8d97a3),pack:M(0x33404f)};
   const parts={},gp={shell:new THREE.Group(),ridge:new THREE.Group(),ridgeSides:[],trailSides:[]},legs=[],boots=[],legG={},skiG={},poles=[],arms={};
   const group=new THREE.Group();
   const pelvis=joint(group,0,STAND_HIP,0);pelvis.rotation.order='YXZ';
@@ -338,7 +355,12 @@ function makeRider(){
   const upper=joint(pelvis,0,0.08,0);upper.rotation.order='YXZ';   /* turn first, then lean */
   const torso=capsule(0.16,0.24,mats.jacket,upper,0,0.26,0);torso.scale.set(1.3,1,0.82);
   bx(0.025,0.4,0.02,mats.trim,0,0.25,0.135,upper);                 /* zip */
-  bx(0.27,0.34,0.12,M(0x33404f),0,0.27,-0.18,upper);               /* backpack */
+  bx(0.27,0.34,0.12,mats.pack,0,0.27,-0.18,upper);                  /* backpack */
+  /* the Thermal Wing: two folded wing spars rising in a V behind the shoulders and the rolled-up wing across the top of the pack */
+  const glider=new THREE.Group();upper.add(glider);glider.visible=false;gp.glider=glider;
+  for(const e of [-1,1]){const sp=bx(0.03,0.72,0.03,M(0x2a2f36),0.09*e,0.52,-0.22,glider);sp.rotation.z=-0.32*e;}
+  const roll=new THREE.Mesh(new THREE.CylinderGeometry(0.075,0.075,0.5,10),M(0xff7a1a,0x3a1500));roll.rotation.z=Math.PI/2;roll.position.set(0,0.47,-0.22);glider.add(roll);
+  bx(0.5,0.02,0.155,M(0xf2f7fb),0,0.47,-0.22,glider);              /* white stripe round the wing roll */
   capsule(0.072,0.04,mats.accent,upper,0,0.52,0);                  /* neck gaiter */
   const head=joint(upper,0,0.65,0.01);
   const helm=new THREE.Mesh(new THREE.SphereGeometry(0.135,16,12),M(0x161d28));helm.scale.set(1,1.02,1.12);head.add(helm);
@@ -382,12 +404,13 @@ function makeRider(){
   bx(0.1,0.01,1.2,mats.accent,0,0.04,0,board);                                                              /* topsheet stripe */
   for(const e of [-1,1]){bx(0.02,0.045,1.32,gold,0.16*e,0.02,0,board);bx(0.26,0.07,0.16,M(0x1b222c),0,0.07,0.3*e,board);}   /* gold edges and bindings */
   group.scale.setScalar(RIDER_SCALE);
+  shadowize(group);
   const shadow=new THREE.Mesh(new THREE.CircleGeometry(1,18),new THREE.MeshBasicMaterial({color:0x13243a,transparent:true,opacity:0.28,depthWrite:false,fog:false}));
   shadow.rotation.x=-Math.PI/2;
   const shadowWrap=new THREE.Group();shadowWrap.add(shadow);
   return {group:group,pelvis:pelvis,upper:upper,mats:mats,parts:parts,gp:gp,legs:legs,boots:boots,legG:legG,skiG:skiG,poles:poles,arms:arms,
     shadow:shadow,shadowWrap:shadowWrap,up:new THREE.Vector3(0,1,0),ph:0,
-    pose:{f:[-0.3,-0.3],b:[0.6,0.6],lean:0.2,twist:0,yaw:0,airK:0,pitch:0}};   /* the smoothed pose, eased toward its target each frame */
+    pose:{f:[-0.3,-0.3],b:[0.6,0.6],lean:0.2,twist:0,roll:0,yaw:0,airK:0,pitch:0}};   /* the smoothed pose, eased toward its target each frame */
 }
 /* free a rider's memory when another player leaves */
 function disposeRider(R){
@@ -396,7 +419,7 @@ function disposeRider(R){
 /* the local rider; the older names stay as aliases so the rest of the game reads the same */
 const RIDER=makeRider();scene.add(RIDER.group);scene.add(RIDER.shadowWrap);
 const skier=RIDER.group,upper=RIDER.upper,parts=RIDER.parts,legMeshes=RIDER.legs,bootMeshes=RIDER.boots;
-const jacketMat=RIDER.mats.jacket,accentMat=RIDER.mats.accent,pantsMat=RIDER.mats.pants,bootMat=RIDER.mats.boot,trimMat=RIDER.mats.trim,skiBaseMat=RIDER.mats.skiBase,stripeMat=RIDER.mats.stripe;
+const packMat=RIDER.mats.pack,jacketMat=RIDER.mats.jacket,accentMat=RIDER.mats.accent,pantsMat=RIDER.mats.pants,bootMat=RIDER.mats.boot,trimMat=RIDER.mats.trim,skiBaseMat=RIDER.mats.skiBase,stripeMat=RIDER.mats.stripe;
 const shadow=RIDER.shadow,shadowWrap=RIDER.shadowWrap;
 /* 0xff8800 -> [1, 0.53, 0]: red, green and blue from 0 to 1, for particle colours */
 const hexRGB=h=>[((h>>16)&255)/255,((h>>8)&255)/255,(h&255)/255];
@@ -409,6 +432,7 @@ function setRiderLook(R,look){
   R.parts.str1.visible=R.parts['str-1'].visible=lost;
   R.mats.jacket.color.setHex(look.c[0]);R.mats.pants.color.setHex(look.c[1]);R.mats.boot.color.setHex(look.c[2]);
   R.gp.shell.visible=look.jacket==='apex';R.gp.parka.visible=look.jacket==='rime';
+  R.mats.pack.color.setHex(look.c[4]!==undefined?look.c[4]:0x33404f);R.gp.glider.visible=look.pack==='glider';   /* older looks have no pack */
   const rid=look.pants==='ridge';R.gp.ridge.visible=rid;R.gp.ridgeSides.forEach(g=>{g.visible=rid;});R.legs.forEach(l=>l.scale.set(rid?1.3:1,1,rid?1.2:1));
   const tb=look.boots==='trail';R.gp.trailSides.forEach(g=>{g.visible=tb;});R.boots.forEach(b=>{b.scale.set(tb?1.08:1,tb?1.4:1,tb?1.1:1);b.position.y=tb?0.02:-0.01;});
 }
@@ -480,13 +504,19 @@ function poseBody(R,S,dt,sp){
   R.pelvis.position.y=lerp(Math.max(drop(0),drop(1))+SOLE,STAND_HIP-0.06,Q.airK);
   Q.yaw+=((brd?1.45:0)-Q.yaw)*k;R.pelvis.rotation.y=Q.yaw;           /* on a board the hips turn sideways */
   /* torso: lean forward to tuck or reach, back to brake; on a board the shoulders open a little toward the nose */
-  let lean,twist=brd?-0.3:0;
+  let lean,twist=brd?-0.3:0,roll=0;
   if(walking)lean=0.06;else if(crash)lean=0.5;
   else if(GP_){lean=GP_.lean;twist+=GP_.twist;}
   else if(air)lean=0.3;
-  else lean=(S.sw&&!brd?0.1-0.3*S.tuck:0.15+0.45*S.tuck)+0.35*S.load-0.2*S.brake;
-  Q.lean+=(lean-Q.lean)*k;Q.twist+=(twist-Q.twist)*k;
-  R.upper.rotation.set(Q.lean,Q.twist,0);
+  else if(brd){
+    /* on a board you stand sideways, so going and braking shift your weight along the board instead:
+       lean over the nose to go, over the tail to brake (riding fakie the nose is behind you, so it flips) */
+    lean=0.18+0.35*S.load;
+    roll=(0.5*S.tuck-0.4*S.brake)*(S.sw?-1:1);
+  }
+  else lean=(S.sw?0.1-0.3*S.tuck:0.15+0.45*S.tuck)+0.35*S.load-0.2*S.brake;
+  Q.lean+=(lean-Q.lean)*k;Q.twist+=(twist-Q.twist)*k;Q.roll+=(roll-Q.roll)*k;
+  R.upper.rotation.set(Q.lean,Q.twist,Q.roll);   /* roll tips the body toward the board's nose (positive) or tail */
   R.upper.position.y=0.08+(walking?0.02*Math.abs(Math.sin(R.ph)):0);
   /* put the skis (or the board) under the feet; they tip up into the hand for nose and tail grabs */
   R.group.updateMatrixWorld(true);
@@ -541,7 +571,7 @@ function poseRider(R,S,dt){
   /* shadow */
   const gy=H(S.x,S.z);R.shadowWrap.position.set(S.x,gy+0.1,S.z);
   _q.setFromUnitVectors(_Y,_n);R.shadowWrap.quaternion.copy(_q);
-  const hh=Math.max(0,S.y-gy);R.shadow.scale.setScalar(1.1+hh*0.12);R.shadow.material.opacity=clamp(0.3-hh*0.02,0.06,0.3);
+  const hh=Math.max(0,S.y-gy);R.shadow.scale.setScalar(1.1+hh*0.12);R.shadow.material.opacity=clamp(0.3-hh*0.02,0.06,0.3)*(GFX_HIGH?0.5:1);   /* with real shadows the blob is just a soft contact shadow */
   return sp;
 }
 /* every frame: pose your own skier from P, and kick up snow spray (and the Lost Line ski trail) */

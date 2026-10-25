@@ -4,7 +4,7 @@
 /* ================= saved progress, menu and reset ================= */
 /* progress is saved in the browser's localStorage under this key */
 const SAVE_KEY='snowchasers.save.v1';
-const PAL_DEFAULT={jacket:0xe8553d,pants:0x25313f,boots:0x161d28,skis:0x2f8fe0};
+const PAL_DEFAULT={jacket:0xe8553d,pants:0x25313f,boots:0x161d28,skis:0x2f8fe0,pack:0x33404f};
 const GH={ll:null,ds:null};   /* my best-run ghosts for this seed */
 const numOrNull=v=>(v===null||v===undefined||!Number.isFinite(+v))?null:+v;
 /* read the save, or null if there is none (or it is from an older format) */
@@ -15,7 +15,7 @@ function saveNow(){
     const old=readSaveRaw(),keepFrags=(old&&Array.isArray(old.frags))?old.frags:[],pbs=(old&&old.pbs&&typeof old.pbs==='object'&&!Array.isArray(old.pbs))?old.pbs:{};
     pbs[SEED_ID]={best:state.best,runBest:state.runBest,gl:GH.ll,gd:GH.ds};
     store.set(SAVE_KEY,JSON.stringify({v:1,have:state.have,gear:state.gear,
-      pal:{jacket:PALETTE.jacket.cur,pants:PALETTE.pants.cur,boots:PALETTE.boots.cur,skis:PALETTE.skis.cur},
+      pal:{jacket:PALETTE.jacket.cur,pants:PALETTE.pants.cur,boots:PALETTE.boots.cur,skis:PALETTE.skis.cur,pack:PALETTE.pack.cur},
       style:Math.round(state.style),frags:TUTORIAL?FR.map(f=>!!f.got):keepFrags,   /* other mountains leave the tutorial's fragments as they were */
      
       clues:state.clues,opt:{music:opt.music,sfx:opt.sfx,muted:muted,ghosts:opt.ghosts,ghostSrc:opt.ghostSrc},pbs:pbs,at:Date.now()}));
@@ -32,14 +32,14 @@ function loadSave(){
   const o=readSaveRaw();if(!o)return false;
   try{
     const hv=(o.have&&typeof o.have==='object')?o.have:{};
-    ['lost','apex','ridge','trail','board','rime'].forEach(k=>{state.have[k]=hv[k]===true;});
+    ['lost','apex','ridge','trail','board','rime','glider'].forEach(k=>{state.have[k]=hv[k]===true;});
     state.unlocked=state.have.lost;
     SLOTS.forEach(sl=>{const id=o.gear&&o.gear[sl[0]];if(OK_ITEM[sl[0]].indexOf(id)>=0&&(id==='std'||state.have[id]))state.gear[sl[0]]=id;});
-    ['jacket','pants','boots','skis'].forEach(k=>{const v=o.pal&&+o.pal[k];if(Number.isFinite(v)&&PALETTE[k].list.indexOf(v)>=0){PALETTE[k].cur=v;if(k==='skis')accent=v;}});
+    ['jacket','pants','boots','skis','pack'].forEach(k=>{const v=o.pal&&+o.pal[k];if(Number.isFinite(v)&&PALETTE[k].list.indexOf(v)>=0){PALETTE[k].cur=v;if(k==='skis')accent=v;}});
     state.style=Math.max(0,+o.style||0);
     if(Array.isArray(o.frags))FR.forEach((f,i)=>{f.got=o.frags[i]===true;if(f.got)fragObjs[i].g.visible=false;});
     state.count=FR.filter(f=>f.got).length;
-    if(o.clues&&typeof o.clues==='object')state.clues={boardNote:o.clues.boardNote===true,parkaNote:o.clues.parkaNote===true};
+    if(o.clues&&typeof o.clues==='object')state.clues={boardNote:o.clues.boardNote===true,parkaNote:o.clues.parkaNote===true,gliderNote:o.clues.gliderNote===true};
     if(o.opt){
       if(Number.isFinite(+o.opt.music))opt.music=clamp(+o.opt.music,0,1);
       if(Number.isFinite(+o.opt.sfx))opt.sfx=clamp(+o.opt.sfx,0,1);
@@ -74,10 +74,10 @@ function armReset(btn){
 /* put everything back to a fresh start, in place, so the demo can be run again */
 function resetProgress(){
   clearTimeout(saveTimer);store.del(SAVE_KEY);
-  state.have={lost:false,apex:false,ridge:false,trail:false,board:false,rime:false};state.unlocked=false;
+  state.have={lost:false,apex:false,ridge:false,trail:false,board:false,rime:false,glider:false};state.unlocked=false;
   if(legendCache)legendCache.visible=true;
-  state.gear={skis:'std',jacket:'std',pants:'std',boots:'std'};
-  ['jacket','pants','boots','skis'].forEach(k=>{PALETTE[k].cur=PAL_DEFAULT[k];});accent=PAL_DEFAULT.skis;
+  state.gear={skis:'std',jacket:'std',pants:'std',boots:'std',pack:'std'};
+  ['jacket','pants','boots','skis','pack'].forEach(k=>{PALETTE[k].cur=PAL_DEFAULT[k];});accent=PAL_DEFAULT.skis;
   state.style=0;state.mult=1;state.comboT=0;state.best=null;state.runBest=null;state.count=0;state.wipes=0;
   GH.ll=null;GH.ds=null;state.clues={};
   FR.forEach((f,i)=>{f.got=false;});
@@ -112,6 +112,7 @@ function refreshMenu(){
   $('volMusic').value=String(Math.round(opt.music*100));$('volSfx').value=String(Math.round(opt.sfx*100));
   $('muteBtn').textContent=muted?'Sound off (M)':'Sound on (M)';
   $('ghostBtn').textContent=opt.ghosts?'Ghosts on':'Ghosts off';$('ghostBtn').classList.toggle('on',opt.ghosts);
+  $('gfxBtn').textContent=GFX_HIGH?'High (shadows)':'Low (faster)';$('gfxBtn').classList.toggle('on',GFX_HIGH);
   $('seedIn').value=String(GAME_SEED);saveInfoRefresh();
 }
 function toggleMenu(){
@@ -127,6 +128,8 @@ $('volMusic').addEventListener('input',()=>{opt.music=clamp((+$('volMusic').valu
 $('volSfx').addEventListener('input',()=>{opt.sfx=clamp((+$('volSfx').value||0)/100,0,1);applyVolumes();saveSoon();sfx('click');});
 $('muteBtn').addEventListener('click',()=>{muted=!muted;applyVolumes();refreshMenu();saveSoon();});
 $('ghostBtn').addEventListener('click',()=>{opt.ghosts=!opt.ghosts;refreshMenu();saveSoon();});
+/* graphics quality is read when the page loads, so switching it saves your progress and reloads */
+$('gfxBtn').addEventListener('click',()=>{store.set('snowchasers.gfx',GFX_HIGH?'low':'high');saveNow();toast('Changing graphics','One moment...',1500);setTimeout(()=>{try{window.location.reload();}catch(err){}},300);});
 $('seedBtn').addEventListener('click',()=>{
   const v=parseInt($('seedIn').value,10);
   if(!(v>=1&&v<=999999)){toast('Pick a seed from 1 to 999999','',2200);return;}
@@ -242,7 +245,7 @@ window.addEventListener('pointerdown',e=>{if(e.pointerType==='touch'||e.pointerT
 /* dzone ignores tiny stick movements; kb turns a pair of keys into -1, 0 or 1 */
 const dzone=v=>{const a=Math.abs(v);return a<0.16?0:Math.sign(v)*(a-0.16)/0.84;};
 const kb=(neg,pos)=>(keys[pos]?1:0)-(keys[neg]?1:0);
-let gpSel=false,gpA=false;
+let gpSel=false,gpA=false,gpX=false;
 /* read the first connected gamepad: both sticks, Select (lift) and A (start) */
 function readGamepad(){
   const o={lx:0,ly:0,rx:0,ry:0,sel:false,a:false};
@@ -251,7 +254,7 @@ function readGamepad(){
     for(let i=0;i<list.length;i++){const g=list[i];
       if(g&&g.connected){
         o.lx=dzone(g.axes[0]||0);o.ly=-dzone(g.axes[1]||0);o.rx=dzone(g.axes[2]||0);o.ry=-dzone(g.axes[3]||0);
-        o.sel=!!(g.buttons[8]&&g.buttons[8].pressed);o.a=!!(g.buttons[0]&&g.buttons[0].pressed);break;
+        o.sel=!!(g.buttons[8]&&g.buttons[8].pressed);o.a=!!(g.buttons[0]&&g.buttons[0].pressed);o.x=!!(g.buttons[2]&&g.buttons[2].pressed);break;
       }
     }
   }catch(_){}
@@ -262,6 +265,7 @@ function unit(x,y){const m=Math.hypot(x,y);return m>1?[x/m,y/m]:[x,y];}
 /* combine keyboard, touch sticks and gamepad into one input: lx,ly (left stick) and rx,ry (right stick), each from -1 to 1 */
 function readInput(){
   const gp=readGamepad();gpSel=gp.sel;gpA=gp.a;
+  if(gp.x&&!gpX)doGroundSpin();gpX=!!gp.x;   /* gamepad X spins 180 */
   const l=unit(kb('KeyA','KeyD')+dzone(sticks.L.x)+gp.lx,kb('KeyS','KeyW')+dzone(sticks.L.y)+gp.ly);
   /* keyboard: Up beats Down, so tapping Up while still holding Down (loaded) fires the hop instead of cancelling out */
   const kry=keys.ArrowUp?1:(keys.ArrowDown?-1:0);
@@ -280,6 +284,7 @@ function updateLift(dt){
   const active=state.mode==='explore'||state.mode==='race'||state.mode==='countdown';
   liftBtn.classList.toggle('hidden',!active);
   $('boardBtn').classList.toggle('hidden',state.mode==='title'||state.mode==='reveal'||state.mode==='results'||state.mode==='countdown');
+  $('spinBtn').classList.toggle('hidden',!((state.mode==='explore'||state.mode==='race')&&!P.walk));
   $('lostBtn').classList.toggle('hidden',!(TUTORIAL&&state.mode==='explore'&&(state.unlocked||state.count>=4)));
   const holding=active&&(liftBtnDown||!!keys.Backspace||gpSel);
   if(holding&&!liftLock){
@@ -291,6 +296,15 @@ function updateLift(dt){
 
 /* ================= keyboard shortcuts ================= */
 /* F or "Skip to the finale": mark all four fragments found and start the map reveal */
+/* spin 180 on the snow (see groundSpin in player.js). It only works while riding, and shows which way round you are now. */
+function doGroundSpin(){
+  if((state.mode!=='explore'&&state.mode!=='race')||gearOpen()||unlockOpen()||worldsOpen())return;
+  if(!groundSpin())return;
+  sfx('whoosh');
+  const brd=state.gear.skis==='board';
+  callout(P.sw?(brd?'180 to fakie':'180 to switch'):'180 back to regular',800);
+}
+$('spinBtn').addEventListener('click',doGroundSpin);
 function skipToFinale(){
   if(!TUTORIAL||state.mode!=='explore'||state.count>=4)return;
   FR.forEach((f,i)=>{if(!f.got){f.got=true;state.count++;fragObjs[i].g.visible=false;}});
@@ -314,6 +328,7 @@ function down(e){
   if(e.code==='KeyR')toggleRiders();
   if(e.code==='KeyB')toggleBoard();
   if(e.code==='KeyE')toggleWalk();
+  if(e.code==='KeyQ')doGroundSpin();
   if(e.code==='KeyJ')joinInvite();
   if(e.code==='Escape'){if(gearOpen()||panelsOpen()){closeGear();closePanels();}else toggleMenu();}
   if(e.code==='KeyM'){muted=!muted;applyVolumes();callout(muted?'Sound off':'Sound on',900);}
@@ -339,6 +354,24 @@ $('startBtn').addEventListener('click',startGame);
 $('skipBtn').addEventListener('click',()=>{startGame();skipToFinale();});
 
 /* last: when the previous frame ran. tAnim: a clock for idle animations. lastCountN: the last countdown number that beeped. */
+/* Yellowstone, every frame: steam off the pools, the geyser's cycle (it blows for 7 seconds out of every 38) and the grazing bison */
+let geyHint=false,geyLaunched=false;
+function yellTick(dt){
+  if(!YELL)return;
+  const live=(state.mode==='explore'||state.mode==='race');
+  for(let n=0;n<Math.ceil(dt*40);n++){const p=POOLS[(Math.random()*POOLS.length)|0],a=Math.random()*6.28,r=Math.random()*p[2];
+    steam.emit(p[0]+Math.cos(a)*r,H(p[0],p[1])+0.4,p[1]+Math.sin(a)*r,0.5+Math.random()*0.6,1.2+Math.random()*1.2,0.3,3.5,5+Math.random()*4);}
+  const gx=GEYSER.x,gz=GEYSER.z,gy=H(gx,gz),cyc=tAnim%38,erupt=cyc>31,splash=cyc>28&&!erupt;
+  if(splash&&Math.random()<0.4)spray.emit(gx,gy+1,gz,(Math.random()-0.5)*3,6+Math.random()*6,(Math.random()-0.5)*3,0.9,0.7);   /* it gurgles first */
+  if(erupt){
+    for(let n=0;n<10;n++)spray.emit(gx+(Math.random()-0.5)*1.5,gy+1,gz+(Math.random()-0.5)*1.5,(Math.random()-0.5)*2.5,20+Math.random()*10,(Math.random()-0.5)*2.5,1.6,0.9);
+    for(let n=0;n<3;n++)steam.emit(gx+(Math.random()-0.5)*3,gy+2+Math.random()*20,gz+(Math.random()-0.5)*3,(Math.random()-0.5),4+Math.random()*3,(Math.random()-0.5),3,8+Math.random()*6);
+  } else geyLaunched=false;
+  const d=Math.hypot(P.x-gx,P.z-gz);
+  if(live&&erupt&&!geyLaunched&&d<5.5&&P.y-gy<2.5&&geyserLaunch(26)){geyLaunched=true;sfx('whoosh');callout('Geyser launch!',1200);}
+  if(live&&!geyHint&&d<60){geyHint=true;toast('A geyser','It erupts every half minute or so. Be standing on it when it blows.',4200);}
+  bisonHeads.forEach((h,i)=>{h.rotation.x=0.45+0.25*Math.sin(tAnim*0.8+i*1.7);});
+}
 let last=performance.now(),tAnim=0,lastCountN=99,windHint=false,hutNoteShown=false,noticeSeen=false,senseBand=0,senseOp=0;
 /* read the note about this mountain's hidden item: show it, remember it, and mark the search area on the minimap */
 function readLegendNote(where){
@@ -472,6 +505,7 @@ function update(dt){
 function updateWorld(dt){
   updateSkier(dt);updateRemotes(dt);updateGhost(dt);
   spray.update(dt);trail.update(dt);burst.update(dt);
+  if(steam){yellTick(dt);steam.update(dt);}
   const wind=Math.sin(tAnim*0.3)*0.6;
   for(let i=0;i<SNOW_N;i++){
     const k=i*3;
@@ -495,6 +529,9 @@ function frame(now){
 
 /* ================= init ================= */
 /* start-up: size the view, place the skier, load the save, put on your gear, start the loop and connect to multiplayer */
+shadowize(scene);   /* everything built so far casts and receives sun shadows */
+/* pictures (signs, the hot-spring pools) keep their true colours instead of being brightened by the camera exposure */
+scene.traverse(m=>{if(m.material&&m.material.isMeshBasicMaterial&&m.material.map)m.material.toneMapped=false;});
 resize();setupMini();
 placePlayer(0,START_Z,0);snapCamera();
 fragObjs.forEach(o=>{o.g.visible=true;});

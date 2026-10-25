@@ -8,13 +8,18 @@ let renderer;
 try{
   renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:true,alpha:true,powerPreference:'high-performance'});
 }catch(e){$('err').style.display='flex';throw e;}
-const dprCap=()=>phoneLayout()?1.6:2;
+const dprCap=()=>GFX_HIGH?(phoneLayout()?1.6:2):1.25;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,dprCap()));
 renderer.setClearColor(0x000000,0);
+/* filmic tone mapping: bright snow rolls off softly instead of clipping to flat white, like a camera exposure */
+renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=2.0;
+if(GFX_HIGH){renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;}
 /* the scene holds every 3D object; fog fades far-away things into the sky colour */
 const scene=new THREE.Scene();
 /* Tahoe sees much further, so the lake and the mountains around it show through the haze */
-scene.fog=TUTORIAL?new THREE.Fog(0xcfe0ef,90,760):(WASH?new THREE.Fog(0xd5dde6,400,24000):new THREE.Fog(0xcfe0ef,600,38000));   /* Mount Washington is hazier */
+/* each mountain's sky: deep blue overhead (top) fading to a pale haze at the horizon (hor). The fog is the same haze colour, so far-off land melts into the sky. */
+const SKY=WASH?{top:0x1a4c8c,hor:0xc4cfdc}:(YELL?{top:0x0f43a0,hor:0xc9d8e8}:{top:0x0b3fa8,hor:0xbcd2ea});
+scene.fog=TUTORIAL?new THREE.Fog(SKY.hor,160,1500):(WASH?new THREE.Fog(SKY.hor,400,24000):(YELL?new THREE.Fog(SKY.hor,600,30000):new THREE.Fog(SKY.hor,600,38000)));   /* Mount Washington is hazier */
 const camera=new THREE.PerspectiveCamera(62,1,TUTORIAL?0.5:1,TUTORIAL?1800:32000);
 /* keep the 3D view the same size as the window */
 function resize(){
@@ -28,15 +33,48 @@ window.addEventListener('resize',resize);
 window.addEventListener('orientationchange',()=>{setTimeout(resize,250);setTimeout(resize,800);});
 if(window.visualViewport)window.visualViewport.addEventListener('resize',resize);
 
-/* soft light from the sky, plus a sun that follows the skier (see updateCamera) */
-const hemi=new THREE.HemisphereLight(0xe3eeff,0x8396b6,0.72);scene.add(hemi);
-const sun=new THREE.DirectionalLight(0xfff1dc,1.1);sun.position.set(160,260,-110);scene.add(sun);scene.add(sun.target);
+/* light: a cool blue sky light that fills in the shadows, and a warm low sun from behind and to the side, so slopes and shadows show the shape of the land */
+const SUN_DIR=new THREE.Vector3(0.62,0.5,-0.6).normalize();
+const hemi=new THREE.HemisphereLight(0xc4dcff,0x6f7f96,0.5);scene.add(hemi);
+const sun=new THREE.DirectionalLight(0xfff0d8,1.4);sun.position.copy(SUN_DIR).multiplyScalar(300);scene.add(sun);scene.add(sun.target);
+/* sun shadows (High graphics): a 140 m square around the skier, moved with you every frame in updateCamera */
+const SHADOW_SPAN=70,SHADOW_MAP=phoneLayout()?1024:2048;
+if(GFX_HIGH){
+  sun.castShadow=true;const sc=sun.shadow.camera;sc.left=-SHADOW_SPAN;sc.right=SHADOW_SPAN;sc.top=SHADOW_SPAN;sc.bottom=-SHADOW_SPAN;sc.near=10;sc.far=700;
+  sun.shadow.mapSize.set(SHADOW_MAP,SHADOW_MAP);sun.shadow.bias=-0.0004;sun.shadow.normalBias=0.06;
+}
+/* shadowize: let a model cast and receive shadows. Glowing, see-through and huge far-away things are skipped. */
+function shadowize(o){
+  o.traverse(m=>{
+    if(!m.isMesh||m.userData.noShadow)return;
+    const mat=Array.isArray(m.material)?m.material[0]:m.material;
+    if(mat&&(mat.transparent||mat.isMeshBasicMaterial))return;
+    m.castShadow=!m.userData.noCast;m.receiveShadow=true;
+  });
+}
+/* the sky dome: a big sphere that always sits round the camera, drawn behind everything, with a sun disc and glow */
+const skyDome=(function(){
+  const mat=new THREE.ShaderMaterial({
+    uniforms:{top:{value:new THREE.Color(SKY.top)},hor:{value:new THREE.Color(SKY.hor)},sunDir:{value:SUN_DIR},sunC:{value:new THREE.Color(0xfff2d6)}},
+    vertexShader:'varying vec3 vD;void main(){vD=position;vec4 p=projectionMatrix*modelViewMatrix*vec4(position,1.0);gl_Position=p.xyww;gl_Position.z*=0.99999;}',
+    fragmentShader:`uniform vec3 top,hor,sunC,sunDir;varying vec3 vD;
+      void main(){
+        vec3 d=normalize(vD);float h=max(d.y,0.0);
+        vec3 c=mix(hor,top,pow(h,0.32));
+        float s=max(dot(d,sunDir),0.0);
+        c+=sunC*(pow(s,6.0)*0.12+pow(s,60.0)*0.3)+sunC*smoothstep(0.9993,0.9997,s)*2.0;   /* the glow round the sun, and the sun itself */
+        gl_FragColor=vec4(c,1.0);
+        #include <tonemapping_fragment>
+      }`,
+    side:THREE.BackSide,depthWrite:false,fog:false});
+  const m=new THREE.Mesh(new THREE.SphereGeometry(100,32,16),mat);m.renderOrder=-10;m.frustumCulled=false;m.userData.noShadow=true;scene.add(m);return m;
+})();
 
 /* ================= terrain mesh ================= */
 /* build the snow surface as one big mesh of triangles from H(x,z): small squares in the middle where you ski, bigger ones at the edges.
    Each corner gets a colour (bare rock on steep faces and cliff lips, blue shading in hollows), and a small shader adds contour lines. */
 /* bare rock colour: blue-grey in the tutorial, pale Sierra granite at Tahoe */
-const RK=TUTORIAL?[0.45,0.47,0.52]:(WASH?[0.3,0.31,0.33]:[0.62,0.6,0.56]);   /* dark mica schist on Mount Washington */
+const RK=TUTORIAL?[0.45,0.47,0.52]:(WASH?[0.3,0.31,0.33]:(YELL?[0.47,0.42,0.38]:[0.62,0.6,0.56]));   /* brown-grey volcanic rock at Yellowstone */   /* dark mica schist on Mount Washington */
 (function buildTerrain(){
   const xs=[],zs=[];
   for(let x=-480;x<-240;x+=9)xs.push(x);
@@ -73,6 +111,18 @@ const RK=TUTORIAL?[0.45,0.47,0.52]:(WASH?[0.3,0.31,0.33]:[0.62,0.6,0.56]);   /* 
     const sr=Math.min(1,0.93*tone*shade*(1-0.24*k2)),sg=Math.min(1,0.955*tone*shade*(1-0.17*k2)),sb=Math.min(1,0.985*tone*(1-0.06*k2));
     col[k]=lerp(sr,RK[0],rock);col[k+1]=lerp(sg,RK[1],rock);col[k+2]=lerp(sb,RK[2],rock);
     if(WATER_Y!==null&&y<WATER_Y+1.6){col[k]=0.5;col[k+1]=0.47;col[k+2]=0.41;}   /* wet sand at the lake's edge */
+    if(YELL){
+      /* the hot-spring basin: no snow, pale grey sinter, with orange and yellow microbe mats round each pool */
+      const tb=thermalIn(x,z);
+      if(tb>0){
+        const n2=0.5+0.5*Math.sin(x*0.21+z*0.17)*Math.sin(z*0.13-x*0.09);
+        let r=lerp(0.62,0.54,n2),g=lerp(0.58,0.5,n2),b=lerp(0.52,0.44,n2);
+        for(let q=0;q<POOLS.length;q++){const p=POOLS[q],d=Math.hypot(x-p[0],z-p[1]);
+          if(d<p[2]+8){const o=(1-smooth(p[2]+1,p[2]+8,d))*0.85,yl=smooth(p[2]+7,p[2]+3,d)*(1-smooth(p[2]+2,p[2]+0.5,d));
+            r=lerp(r,0.78,o);g=lerp(g,0.34+0.28*yl,o);b=lerp(b,0.08+0.06*yl,o);}}
+        col[k]=lerp(col[k],r,tb);col[k+1]=lerp(col[k+1],g,tb);col[k+2]=lerp(col[k+2],b,tb);
+      }
+    }
   }
   const idx=new Uint32Array((nx-1)*(nz-1)*6);let n=0;
   for(let j=0;j<nz-1;j++)for(let i=0;i<nx-1;i++){
@@ -84,29 +134,31 @@ const RK=TUTORIAL?[0.45,0.47,0.52]:(WASH?[0.3,0.31,0.33]:[0.62,0.6,0.56]);   /* 
   geo.setAttribute('color',new THREE.BufferAttribute(col,3));
   geo.setIndex(new THREE.BufferAttribute(idx,1));
   geo.computeVertexNormals();
-  const tmat=new THREE.MeshLambertMaterial({vertexColors:true});
+  /* the snow: a rough, matte surface lit by the sun and sky, with wind ripples and grain up close, colder blue snow on steep faces,
+     and glints of sparkle where the sun catches ice crystals (they shift as you move) */
+  const tmat=new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.9,metalness:0});
   tmat.onBeforeCompile=sh=>{
     sh.vertexShader=sh.vertexShader.replace('void main() {','varying vec3 vWP;\nvarying vec3 vWN;\nvoid main() {\n  vWP=position;vWN=normal;');
-    sh.fragmentShader=sh.fragmentShader.replace('void main() {','varying vec3 vWP;\nvarying vec3 vWN;\nvoid main() {')
+    sh.fragmentShader=sh.fragmentShader.replace('void main() {',`varying vec3 vWP;varying vec3 vWN;
+      float hsh(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+      float hsh3(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
+      void main() {`)
       .replace('#include <color_fragment>',`#include <color_fragment>
       float sl=1.0-clamp(normalize(vWN).y,0.0,1.0);
-      float far=1.0-smoothstep(140.0,560.0,fogDepth);
-      diffuseColor.rgb*=mix(vec3(1.0),vec3(0.78,0.85,0.96),smoothstep(0.02,0.30,sl));
-      float band=sin(vWP.y*0.1047);
-      diffuseColor.rgb*=vec3(1.0+0.05*band,1.0+0.018*band,1.0-0.06*band);
-      float cy=vWP.y/4.0;
-      float w=0.03+fogDepth*0.0011;
-      float d1=min(fract(cy),1.0-fract(cy));
-      float cm=vWP.y/20.0;
-      float w2=0.012+fogDepth*0.00045;
-      float d2=min(fract(cm),1.0-fract(cm));
-      float l1=(1.0-smoothstep(0.0,w,d1))*0.20;
-      float l2=(1.0-smoothstep(0.0,w2,d2))*0.50;
-      diffuseColor.rgb=mix(diffuseColor.rgb,vec3(0.36,0.52,0.76),max(l1,l2)*far);
-      `);
+      float dist=length(vViewPosition),nf=1.0-smoothstep(25.0,240.0,dist);
+      float rip=sin(vWP.x*0.85+sin(vWP.z*0.29)*2.2)*sin(vWP.z*0.63+vWP.x*0.11);
+      float grain=hsh(floor(vWP.xz*5.0))-0.5;
+      diffuseColor.rgb*=1.0+nf*(0.03*rip+0.035*grain);
+      diffuseColor.rgb*=mix(vec3(1.0),vec3(0.86,0.9,0.98),smoothstep(0.05,0.4,sl));
+      `)
+      .replace('#include <tonemapping_fragment>',`
+      float lit=dot(reflectedLight.directDiffuse,vec3(0.333));
+      float sp=hsh3(floor(vWP*7.0)+floor(normalize(vViewPosition)*7.0));
+      gl_FragColor.rgb+=vec3(1.0,0.98,0.94)*step(0.9965,sp)*smoothstep(0.25,0.6,lit)*nf*(1.0-sl)*2.2;
+      #include <tonemapping_fragment>`);
   };
-  tmat.customProgramCacheKey=()=>'terrainContrast';
-  const mesh=new THREE.Mesh(geo,tmat);
+  tmat.customProgramCacheKey=()=>'snowStd';
+  const mesh=new THREE.Mesh(geo,tmat);mesh.userData.noCast=true;
   mesh.frustumCulled=false;scene.add(mesh);
 })();
 
@@ -131,6 +183,7 @@ function treeFree(x,z,d){
 function addTree(x,z,s){
   const t={x:x,z:z,s:s,sx:s*(0.84+rng()*0.3),sy:s*(0.88+rng()*0.45),r:rng()*6.28,lx:(rng()-0.5)*0.07,lz:(rng()-0.5)*0.07,gy:H(x,z)};
   if(TAHOE)t.sy*=1.3;   /* Tahoe's Jeffrey pines grow tall */
+  if(YELL){t.sx*=0.72;t.sy*=1.3;}   /* Yellowstone's lodgepole pines are tall and narrow */
   trees.push(t);
   const k=tCell(x,z);let a=tgrid.get(k);if(!a){a=[];tgrid.set(k,a);}a.push([x,z]);
   addObstacle(x,z,0.78*t.sx);
@@ -143,6 +196,7 @@ function inShelterGap(x,z){
 }
 /* places that must stay clear of trees: the Lost Line, the start, the finish, jumps and landmarks */
 function blocked(x,z){
+  if(YELL&&thermalIn(x,z)>0.02)return true;   /* nothing grows in the hot-spring basin */
   if(Math.abs(x-lineX(z))<13)return true;
   if(z>-20&&z<110&&Math.abs(x)<22)return true;
   if(z>1560)return true;
@@ -152,7 +206,7 @@ function blocked(x,z){
   return false;
 }
 /* where the forest starts (z): trees thin out above TL[0] and none grow above it. Mount Washington's tree line is low, at the bowl floor. */
-const TL=WASH?[720,920]:[70,430];
+const TL=WASH?[720,920]:(YELL?[380,620]:[70,430]);
 /* a rough bell-curve random number, used to bunch trees toward the middle of a grove */
 const gauss=()=>(rng()+rng()+rng()-1.5)*1.15;
 (function placeVegetation(){
@@ -213,10 +267,11 @@ const gauss=()=>(rng()+rng()+rng()-1.5)*1.15;
   }
   /* rocks: Mount Washington's upper slopes are boulder fields */
   let rt=0;
-  while(rocks.length<(TUTORIAL?340:(WASH?900:520))&&rt<(WASH?16000:6000)){
+  while(rocks.length<(TUTORIAL?340:(WASH?900:(YELL?420:520)))&&rt<(WASH?16000:6000)){
     rt++;
     const x=(rng()*2-1)*300,z=-250+rng()*1800;
     if(WASH&&z>650&&rng()<0.8)continue;
+    if(YELL&&thermalIn(x,z)>0)continue;
     if(Math.abs(x-lineX(z))<10)continue;
     if(z>-20&&z<110&&Math.abs(x)<22)continue;
     if(z>1560)continue;
@@ -228,21 +283,24 @@ const gauss=()=>(rng()+rng()+rng()-1.5)*1.15;
   }
 })();
 
-/* tree geometry: five drooping tiers, snow on the upper surfaces, merged into one mesh */
+/* tree geometry: seven drooping tiers of branches, each with a ragged, sagging edge. Snow sits in patches on the upper surfaces;
+   the needles underneath and deep inside the tree are darker, as they are in the shade. Merged into one mesh. */
 function makeFoliageGeo(){
-  const tiers=[[1.5,2.4,1.75],[2.7,2.2,1.5],[3.8,2.0,1.2],[4.75,1.7,0.92],[5.55,1.5,0.62]];
+  const tiers=[];for(let i=0;i<7;i++)tiers.push([1.25+i*0.66,2.25-i*0.13,1.9*(1-i/7.8)+0.12]);
   const Pp=[],Nn=[],Cc=[],Ii=[];let off=0;
   tiers.forEach((t,ti)=>{
-    const g=new THREE.ConeGeometry(t[2],t[1],10,1,true);g.translate(0,t[0]+t[1]/2,0);
+    const g=new THREE.ConeGeometry(t[2],t[1],14,2,true);g.translate(0,t[0]+t[1]/2,0);
     const p=g.attributes.position,n=g.attributes.normal,ix=g.index.array;
     for(let i=0;i<p.count;i++){
       let x=p.getX(i),y=p.getY(i),z=p.getZ(i);
       const u=(y-t[0])/t[1],a=Math.atan2(x,z);
-      const jit=1+(0.09*Math.sin(a*3+ti*1.7)+0.05*Math.sin(a*7+ti))*(1-u);
-      x*=jit;z*=jit;y-=0.14*(1-u)*(0.5+0.5*Math.sin(a*5+ti));
-      Pp.push(x,y,z);Nn.push(n.getX(i),n.getY(i),n.getZ(i));
-      const sn=smooth(0.2,0.8,u);
-      Cc.push(lerp(0.12+0.015*ti,0.95,sn),lerp(0.30+0.025*ti,0.97,sn),lerp(0.22,1.0,sn));
+      const jit=1+(0.13*Math.sin(a*4+ti*1.7)+0.07*Math.sin(a*9+ti*2.3))*(1-u);   /* ragged branch tips */
+      x*=jit;z*=jit;y-=0.24*(1-u)*(1-u)*(0.6+0.4*Math.sin(a*6+ti));               /* branch ends sag under the snow */
+      Pp.push(x,y,z);Nn.push(n.getX(i),n.getY(i)+0.25,n.getZ(i));
+      const patch=0.5+0.5*Math.sin(a*5+ti*2.1)*Math.sin(a*3-ti);
+      const sn=smooth(0.3,0.75,u)*smooth(0.15,0.55,patch+0.3*u)*(0.7+0.3*(ti/6));
+      const shade=0.62+0.38*u;                                                    /* darker at the bottom of each tier */
+      Cc.push(lerp(0.06*shade,0.9,sn),lerp((0.17+0.012*ti)*shade,0.93,sn),lerp(0.1*shade,0.98,sn));
     }
     for(let i=0;i<ix.length;i++)Ii.push(ix[i]+off);
     off+=p.count;
@@ -275,13 +333,17 @@ let treeFadeAttr=null;const treeFade=new Float32Array(trees.length).fill(1);
   const foliageGeo=makeFoliageGeo();
   treeFadeAttr=new THREE.InstancedBufferAttribute(treeFade,1);treeFadeAttr.setUsage(THREE.DynamicDrawUsage);
   trunkGeo.setAttribute('fade',treeFadeAttr);foliageGeo.setAttribute('fade',treeFadeAttr);
-  const trunkMat=M(TUTORIAL?0x4d3626:(WASH?0x3f3128:0x7a4a30)),foliageMat=new THREE.MeshLambertMaterial({vertexColors:true});
+  const trunkMat=M(TUTORIAL?0x4d3626:(WASH?0x3f3128:(YELL?0x6a4a34:0x7a4a30))),foliageMat=new THREE.MeshLambertMaterial({vertexColors:true});
   applyFade(trunkMat,'treeTrunk');applyFade(foliageMat,'treeFoliage');
   const pl=(t,d)=>{d.position.set(t.x,t.gy-0.15,t.z);d.scale.set(t.sx,t.sy,t.sx);d.rotation.set(t.lx,t.r,t.lz);};
   inst(trunkGeo,trunkMat,trees,pl);
   inst(foliageGeo,foliageMat,trees,(t,d,i,m)=>{pl(t,d);col.setRGB(0.88+rng()*0.2,0.92+rng()*0.14,0.88+rng()*0.16);m.setColorAt(i,col);}).instanceColor.needsUpdate=true;
-  const rg=new THREE.DodecahedronGeometry(1,0);
-  inst(rg,M(TUTORIAL?0x7b8290:(WASH?0x8d9097:0xa29d93)),rocks,(r,d)=>{d.position.set(r.x,H(r.x,r.z)+r.s*0.15,r.z);d.scale.set(r.s,r.s*0.72,r.s*0.9);d.rotation.set(0,r.r,0);});
+  const rg=new THREE.DodecahedronGeometry(1,1);   /* rounder boulders */
+  inst(rg,M(TUTORIAL?0x7b8290:(WASH?0x8d9097:(YELL?0x857a70:0xa29d93))),rocks,(r,d)=>{d.position.set(r.x,H(r.x,r.z)+r.s*0.15,r.z);d.scale.set(r.s,r.s*0.72,r.s*0.9);d.rotation.set(0,r.r,0);});
+  /* snow caps: a drift of snow on top of most boulders (every fourth one is blown bare) */
+  const capped=rocks.filter((r,i)=>i%4!==3);
+  const capGeo=new THREE.SphereGeometry(1,12,6,0,Math.PI*2,0,Math.PI/2);
+  inst(capGeo,M(0xf4f7fb),capped,(r,d)=>{d.position.set(r.x,H(r.x,r.z)+r.s*0.15+r.s*0.5,r.z);d.scale.set(r.s*0.82,r.s*0.26,r.s*0.72);d.rotation.set(0,r.r,0);});
 })();
 /* fade out any tree standing between the camera and the skier (and any tree the camera is inside of) */
 function updateTreeFade(dt){
@@ -406,7 +468,7 @@ function gridMesh(xs,zs,f,mat){
   const geo=new THREE.BufferGeometry();
   geo.setAttribute('position',new THREE.BufferAttribute(pos,3));geo.setAttribute('color',new THREE.BufferAttribute(col,3));
   geo.setIndex(idx);geo.computeVertexNormals();
-  const m=new THREE.Mesh(geo,mat);m.frustumCulled=false;scene.add(m);return m;
+  const m=new THREE.Mesh(geo,mat);m.frustumCulled=false;m.userData.noShadow=true;scene.add(m);return m;
 }
 const steps=(a,b,s)=>{const out=[];for(let v=a;v<b;v+=s)out.push(v);return out;};
 /* ================= hidden legendary items =================
@@ -418,6 +480,9 @@ const LEGEND=TAHOE?{slot:'skis',id:'board',clue:'boardNote',hut:'A note pinned t
   :WASH?{slot:'jacket',id:'rime',color:0x3b82d6,clue:'parkaNote',hut:'A page in the Hermit Lake shelter logbook',
     note:'"Lost my parka to a gust up on the Alpine Garden. It is wedged in the rime-crusted rocks left of the ravine, before the headwall drops, under the tall cairn with the orange flag." R.',
     unlock:{slot:'New jacket',icon:'jacket',title:'The Rime Parka',body:'Frozen stiff with rime ice, but it thaws as you zip it up. The wind up here barely touches you now.'}}
+  :YELL?{slot:'pack',id:'glider',color:0xff7a1a,clue:'gliderNote',hut:'A note in the warming hut',
+    note:'"Stashed my wing up on the east ridge, where the cliffs drop toward the Absarokas. Find the orange windsock and look in the rocks just below it." R.',
+    unlock:{slot:'New pack',icon:'backpack',title:'The Thermal Wing',body:'A folding glider pack, tucked out of the wind under the windsock. Its wing is packed tight for now: gliding comes in a later update.'}}
   :null;
 let legendCache=null,legendRag=null,legendGlint=null;
 const LEGEND_SPOT=LEGEND?{x:PADS[3].x,z:PADS[3].z}:null;
@@ -476,11 +541,13 @@ function ridged(x,z){
   v/=amp;return v*v;
 }
 /* blend the wider land h into the ski area's own slopes close to it */
-function nearSki(x,z,h,extraW){
+function nearSki(x,z,h,extraW,open){
   const ax=Math.abs(x),dx=Math.max(0,ax-480),dz=Math.max(0,-320-z,z-1760),dp=Math.hypot(dx,dz);
   if(dp>=2600)return h;
-  const hw=rawH(clamp(x,-480,480),z)+0.25*dx;
-  return lerp(hw,h,Math.max(smooth(500,2600,dp),extraW?extraW(dp):0));
+  /* open: the land beyond the bottom of the run falls away instead of rising, so the view ahead is clear */
+  const o=open?smooth(1100,1600,z):0;
+  const hw=rawH(clamp(x,-480,480),z)+lerp(0.25,0.04,o)*dx;
+  return lerp(hw,h,Math.max(smooth(lerp(500,150,o),lerp(2600,1100,o),dp),extraW?extraW(dp):0));
 }
 /* ---- Lake Tahoe ----
    You ski down the east shore (like at Heavenly) looking west across the water. The lake runs far off to the right (north),
@@ -539,7 +606,8 @@ function washFarH(x,z){
 /* a tiny seeded random just for the scenery, so it never changes the course */
 const srng=(function(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};})(20240917);
 /* build the wider land. cfg: h (height function), base (the height everything is measured from: the lake or the valley floor),
-   treeTop (forest thins out between these heights above base), rock (rock colour), water (a lake), trail (bare ski trails), hardwood (share of leafless trees) */
+   treeTop (forest thins out between these heights above base), rock (rock colour), water (a lake), trail (bare ski trails), hardwood (share of leafless trees),
+   paint (a colour for special places like ice or canyon walls, or null) and noTree (true where no trees should grow) */
 function buildBasin(cfg){
   const FH=cfg.h,B=cfg.base;
   /* the land: one big sheet, finer near the ski area and coarser far away */
@@ -561,12 +629,13 @@ function buildBasin(cfg){
     r=lerp(r,fr,forest*0.9);g=lerp(g,fg,forest*0.9);b=lerp(b,fb,forest*0.9);
     r=lerp(r,RC[0],rock*0.85);g=lerp(g,RC[1],rock*0.85);b=lerp(b,RC[2],rock*0.85);
     if(cfg.water&&a<5&&a>-3){r=0.8;g=0.75;b=0.62;}              /* sandy beach */
+    if(cfg.paint){const pc=cfg.paint(x,y,z);if(pc){r=pc[0];g=pc[1];b=pc[2];}}
     col[n*3]=r;col[n*3+1]=g;col[n*3+2]=b;
   }
   geo.setAttribute('color',new THREE.BufferAttribute(col,3));
   /* polygonOffset nudges the land slightly back, so the water wins where they nearly touch far away (no flickering shoreline) */
   const land=new THREE.Mesh(geo,new THREE.MeshLambertMaterial({vertexColors:true,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:2}));
-  land.frustumCulled=false;scene.add(land);
+  land.frustumCulled=false;land.userData.noShadow=true;scene.add(land);
   if(cfg.water){
     /* the lake: turquoise over the sandy shallows all round the shore, deep blue further out, with a glint where the sun hits it */
     const wx=steps(-16000,-480,160).concat(steps(-480,480,6),steps(480,14001,160));
@@ -587,6 +656,7 @@ function buildBasin(cfg){
     if(dp<40||dp>9000)continue;
     const y=FH(x,z),a=y-B;if(a<6||a>T[0]+80)continue;
     if(cfg.trail&&cfg.trail(x,z)>0.2)continue;
+    if(cfg.noTree&&cfg.noTree(x,z))continue;
     const sl=Math.hypot(FH(x+20,z)-y,FH(x,z+20)-y)/20;if(sl>0.55)continue;
     const fn=0.55+0.45*Math.sin(x*0.004+z*0.003)*Math.sin(z*0.0051-x*0.0027)+0.25*Math.sin(x*0.013-z*0.011);
     if(srng()>fn-0.15)continue;
@@ -601,7 +671,7 @@ function buildBasin(cfg){
     else cc.setRGB(0.12+srng()*0.05,0.22+srng()*0.06,0.17+srng()*0.03);
     forest.setColorAt(i,cc);
   });
-  forest.instanceMatrix.needsUpdate=true;forest.instanceColor.needsUpdate=true;forest.frustumCulled=false;scene.add(forest);
+  forest.instanceMatrix.needsUpdate=true;forest.instanceColor.needsUpdate=true;forest.frustumCulled=false;forest.userData.noShadow=true;scene.add(forest);
 }
 
 /* ================= Lake Tahoe scenery ================= */
@@ -757,6 +827,192 @@ function cairn(x,z,s,parent){
   finishBanner('PINKHAM NOTCH');
 })();
 
+/* ================= Yellowstone scenery =================
+   You ski south off Mount Washburn. To the left (east) rise the jagged Absaroka Range; to the right (west) the caldera's lodgepole
+   plateau rolls away with steam rising from distant geyser basins. Ahead, the yellow Grand Canyon of the Yellowstone cuts across,
+   with the Lower Falls at its head, Hayden Valley beyond, and frozen Yellowstone Lake on the horizon. */
+const YB=-380;   /* the caldera floor, about level with the hot-spring basin */
+const CANYON=[[-700,3300],[-200,2900],[600,2500],[1500,2200],[2600,1900],[3800,1700]];   /* the canyon, from the Lower Falls downstream */
+/* distance from a point to the canyon's centre line, and how far along it (0 at the falls) */
+function canyonAt(x,z){
+  let best=1e9,along=0,acc=0;
+  for(let i=0;i<CANYON.length-1;i++){
+    const a=CANYON[i],b=CANYON[i+1],vx=b[0]-a[0],vz=b[1]-a[1],L=Math.hypot(vx,vz),t=clamp(((x-a[0])*vx+(z-a[1])*vz)/(L*L),-0.2,1);
+    const d=Math.hypot(a[0]+vx*t-x,a[1]+vz*t-z);
+    if(d<best){best=d;along=acc+t*L;}
+    acc+=L;
+  }
+  return {d:best,along:along};
+}
+const hayden=(x,z)=>1-smooth(0.8,1.2,Math.pow((x+500)/2200,2)+Math.pow((z-5300)/1800,2));   /* open, treeless Hayden Valley */
+const ylake=(x,z)=>Math.pow((x+800)/4200,2)+Math.pow((z-9600)/2300,2);                    /* under 1 is Yellowstone Lake */
+/* the canyon's depth below its rim, a long way along it (shallower at the falls, deeper downstream) */
+const canyonDepth=along=>lerp(150,320,smooth(0,2500,along));
+function yellFarH(x,z){return yellLand(x,z,true);}
+/* the land without the canyon cut into it (carve=false) is the rim height the detailed canyon mesh hangs from */
+function yellLand(x,z,carve){
+  if(Math.abs(x)<480&&z>-320&&z<1760)return YB-300;
+  const r=ridged(x,z);
+  const c=canyonAt(x,z);
+  let h=YB+40+150*r*smooth(150,900,c.d);                                     /* the lodgepole plateau, lower and flatter near the canyon rim */
+  h+=380*smooth(500,-1500,z)*(0.6+0.4*r);                                     /* the Washburn Range behind us */
+  h+=760*smooth(2500,6500,x)*(0.5+0.65*r);                                    /* the Absaroka Range to the east */
+  h=lerp(h,YB-5,hayden(x,z));
+  const lk=ylake(x,z);if(lk<1.15)h=lerp(h,YB+12,1-smooth(1,1.15,lk));        /* the frozen lake, flat as a table */
+  /* the coarse land is cut a little deeper and wider than the canyon itself, so it stays hidden under the detailed canyon mesh */
+  if(carve&&c.d<330){const on=smooth(-60,40,c.along);h-=(canyonDepth(c.along)+60)*on*Math.pow(Math.max(0,1-c.d/330),1.2);}
+  return nearSki(x,z,h,null,true);
+}
+/* colours that override the usual snow and forest: lake ice, the yellow canyon walls, and the open snow of Hayden Valley */
+function yellPaint(x,y,z){
+  if(ylake(x,z)<1)return [0.86,0.9,0.95];
+  const c=canyonAt(x,z);
+  if(c.d<250&&c.along>-40){
+    const band=0.5+0.5*Math.sin(y*0.07+c.along*0.002);
+    const t=1-smooth(150,250,c.d);
+    if(t>0)return [lerp(0.95,lerp(0.9,0.84,band),t),lerp(0.96,lerp(0.82,0.5,band),t),lerp(0.98,lerp(0.62,0.26,band),t)];
+  }
+  if(hayden(x,z)>0.5)return [0.94,0.95,0.97];
+  return null;
+}
+const yellNoTree=(x,z)=>ylake(x,z)<1.1||canyonAt(x,z).d<300||hayden(x,z)>0.3;
+/* a small rustic hut with a lamp in the window, used for the warming hut */
+function buildHut(p){
+  const hut=new THREE.Group();hut.position.set(p.x,p.h,p.z);scene.add(hut);
+  bx(5,2.6,4,M(0x6e4a31),0,1.3,0,hut);
+  const rf=new THREE.Mesh(new THREE.ConeGeometry(4.3,2.4,4),M(0xf1f6fa));rf.rotation.y=Math.PI/4;rf.position.y=3.8;hut.add(rf);
+  bx(1,1.9,0.2,M(0x2b1c12),0,0.95,2.05,hut);bx(1,0.8,0.2,M(0xffe3a0,0xffc866),-1.5,1.6,2.05,hut);
+  const lamp=new THREE.PointLight(0xffc77a,1,20);lamp.position.set(0,2.4,3);hut.add(lamp);
+  addObstacle(p.x,p.z,3.6);
+}
+/* a bison: humped back frosted with snow, head low to the ground. main.js bobs the heads as they graze. */
+const bisonHeads=[];
+function bison(x,z,ry){
+  const g=new THREE.Group();g.position.set(x,H(x,z),z);g.rotation.y=ry;scene.add(g);
+  const fur=M(0x3b2a1e),dark=M(0x241911),frost=M(0xe8edf2);
+  const body=new THREE.Mesh(new THREE.SphereGeometry(1,12,10),fur);body.scale.set(0.85,0.85,1.5);body.position.set(0,1.45,0);g.add(body);
+  const hump=new THREE.Mesh(new THREE.SphereGeometry(0.85,12,10),dark);hump.position.set(0,1.95,0.65);g.add(hump);
+  const snow=new THREE.Mesh(new THREE.SphereGeometry(0.7,10,8),frost);snow.scale.set(0.9,0.35,1.6);snow.position.set(0,2.2,0.2);g.add(snow);
+  for(const lx of [-0.45,0.45])for(const lz of [-0.9,0.9]){const l=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.11,1,6),dark);l.position.set(lx,0.5,lz);g.add(l);}
+  const head=new THREE.Group();head.position.set(0,1.55,1.5);g.add(head);
+  const hm=bx(0.6,0.6,0.75,dark,0,-0.2,0.25,head);
+  for(const e of [-1,1]){const horn=new THREE.Mesh(new THREE.ConeGeometry(0.05,0.3,5),M(0x1a1612));horn.position.set(0.3*e,0.05,0.15);horn.rotation.z=-1.1*e;head.add(horn);}
+  bisonHeads.push(head);addObstacle(x,z,2.2);
+}
+(function buildYellowstone(){
+  if(!YELL)return;
+  buildBasin({h:yellFarH,base:YB,treeTop:[520,700],rock:[0.5,0.45,0.4],water:false,hardwood:0.15,paint:yellPaint,noTree:yellNoTree});
+  /* the Grand Canyon of the Yellowstone: its own detailed mesh, sampled every 40 m along its course and 29 times across.
+     A V-shaped gorge with ledges, banded yellow, cream and pinkish-orange rhyolite, snow on the gentler slopes and the river below. */
+  const cpts=[];
+  for(let i=0;i<CANYON.length-1;i++){const a=CANYON[i],b=CANYON[i+1],L=Math.hypot(b[0]-a[0],b[1]-a[1]),n=Math.ceil(L/40);
+    for(let k=0;k<n;k++)cpts.push([lerp(a[0],b[0],k/n),lerp(a[1],b[1],k/n)]);}
+  cpts.push(CANYON[CANYON.length-1]);
+  const NJ=28,cpos=[],ccol=[],cidx=[];let along=0;
+  cpts.forEach((p,i)=>{
+    if(i>0)along+=Math.hypot(p[0]-cpts[i-1][0],p[1]-cpts[i-1][1]);
+    const q=cpts[Math.min(cpts.length-1,i+1)],o=cpts[Math.max(0,i-1)],tl=Math.hypot(q[0]-o[0],q[1]-o[1])||1,nx=-(q[1]-o[1])/tl,nz=(q[0]-o[0])/tl;
+    const W=lerp(240,290,smooth(0,2500,along)),D=canyonDepth(along);
+    for(let j=0;j<=NJ;j++){
+      const u=-1+2*j/NJ,au=Math.abs(u),x=p[0]+nx*u*W,z=p[1]+nz*u*W,rim=yellLand(x,z,false);
+      const f=(1-Math.pow(au,1.7))+0.05*Math.sin(au*15+along*0.01);        /* the V, with ledges */
+      const y=rim-D*clamp(f,0,1);
+      cpos.push(x,y,z);
+      const band=0.5+0.5*Math.sin(y*0.09+along*0.003),bed=f>0.97,snowy=au>0.9||(Math.sin(au*15+along*0.01)>0.7&&au>0.35);
+      let c=bed?[0.82,0.88,0.9]:[lerp(0.93,0.86,band),lerp(0.84,0.52,band),lerp(0.66,0.36,band)];   /* the frozen river, or banded rock */
+      if(!bed&&band>0.8)c=[0.84,0.6,0.52];                                  /* pinkish streaks */
+      if(snowy)c=[0.93,0.94,0.96];
+      ccol.push(c[0],c[1],c[2]);
+    }
+  });
+  for(let i=0;i<cpts.length-1;i++)for(let j=0;j<NJ;j++){const a=i*(NJ+1)+j,b=a+1,c=a+NJ+1,d=c+1;cidx.push(a,c,b,b,c,d);}
+  const cg2=new THREE.BufferGeometry();cg2.setAttribute('position',new THREE.Float32BufferAttribute(cpos,3));cg2.setAttribute('color',new THREE.Float32BufferAttribute(ccol,3));
+  cg2.setIndex(cidx);cg2.computeVertexNormals();
+  const canyon=new THREE.Mesh(cg2,new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.DoubleSide}));canyon.frustumCulled=false;canyon.userData.noShadow=true;scene.add(canyon);
+  /* the Lower Falls at the head of the canyon: a curtain of water and ice, a great ice cone at the bottom, and mist */
+  const h0=CANYON[0],h1=CANYON[1],dl=Math.hypot(h1[0]-h0[0],h1[1]-h0[1]),dx0=(h1[0]-h0[0])/dl,dz0=(h1[1]-h0[1])/dl;
+  const fx=h0[0]+dx0*30,fz=h0[1]+dz0*30,top=YB-5,bot=yellLand(fx,fz,false)-canyonDepth(30);
+  const fall=new THREE.Mesh(new THREE.PlaneGeometry(40,top-bot),new THREE.MeshLambertMaterial({color:0xeef6fb,emissive:0x2a3a46,side:THREE.DoubleSide}));
+  fall.position.set(fx,(top+bot)/2,fz);fall.rotation.y=Math.atan2(dx0,dz0);scene.add(fall);
+  const cone=new THREE.Mesh(new THREE.ConeGeometry(45,50,12),M(0xe8f2f8,0x203040));cone.position.set(fx+dx0*45,bot+20,fz+dz0*45);scene.add(cone);
+  const mist=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex(),color:0xffffff,transparent:true,opacity:0.5,depthWrite:false}));mist.position.set(fx+dx0*60,bot+45,fz+dz0*60);mist.scale.set(180,140,1);scene.add(mist);
+  /* steam rising from distant geyser basins across the caldera */
+  [[-5200,2600],[-7600,5200],[-4300,6800],[-9000,3800],[-3000,4300]].forEach((p,i)=>{
+    const s=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex(),color:0xffffff,transparent:true,opacity:0.32,depthWrite:false}));
+    s.position.set(p[0],yellFarH(p[0],p[1])+330+i*30,p[1]);s.scale.set(320,820,1);scene.add(s);
+  });
+  /* the summit: the fire lookout with its glass room and radio mast, and the summit sign */
+  const s=PADS[0],lo=new THREE.Group();lo.position.set(s.x,s.h,s.z);scene.add(lo);
+  bx(7,5,7,M(0x7d7368),0,2.5,0,lo);
+  bx(7.4,2.6,7.4,M(0x1c2530,0x0d1a28),0,6.3,0,lo);                  /* the glass lookout room */
+  for(const cx of [-3.7,3.7])for(const cz of [-3.7,3.7])bx(0.25,2.6,0.25,M(0xe9e4da),cx,6.3,cz,lo);
+  const lr=new THREE.Mesh(new THREE.ConeGeometry(6.2,2,4),M(0x4a3a2c));lr.rotation.y=Math.PI/4;lr.position.y=8.6;lo.add(lr);
+  const ant=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.16,10,6),M(0xd6dbe0));ant.position.set(2,14,2);lo.add(ant);
+  for(let i=0;i<3;i++){const d=new THREE.Mesh(new THREE.CylinderGeometry(0.6,0.6,0.15,12),M(0xf2f6fa));d.rotation.x=Math.PI/2;d.position.set(2,11+i*1.8,2.5);lo.add(d);}
+  addObstacle(s.x,s.z,5.5);
+  const sn=new THREE.Group();sn.position.set(s.x-16,H(s.x-16,s.z+16),s.z+16);sn.rotation.y=0.3;scene.add(sn);
+  for(const e of [-1,1])bx(0.2,3,0.2,M(0x4a3a2c),e*2.2,1.5,0,sn);
+  const sg=new THREE.Mesh(new THREE.PlaneGeometry(5,1.6),new THREE.MeshBasicMaterial({map:signTex('MOUNT WASHBURN 10,243 FT','#c9a46a','#5a3d24'),side:THREE.DoubleSide}));sg.position.y=2.6;sn.add(sg);
+  addObstacle(s.x-16,s.z+16,2.4);
+  buildHut(PADS[1]);
+  /* dead snags from the 1988 fires, standing grey among the young lodgepoles */
+  const snags=[];
+  for(let i=0;i<4000&&snags.length<260;i++){
+    const x=(srng()*2-1)*430,z=420+srng()*900;
+    if(blocked(x,z)||!treeFree(x,z,3))continue;
+    grad(x,z,_g);if(Math.hypot(_g.x,_g.z)>0.6)continue;
+    snags.push([x,z,0.7+srng()*0.6]);
+  }
+  const snagGeo=new THREE.CylinderGeometry(0.08,0.22,12,5).translate(0,6,0);
+  const sm=new THREE.InstancedMesh(snagGeo,M(0x8a8178),snags.length),dm=new THREE.Object3D();
+  snags.forEach((p,i)=>{dm.position.set(p[0],H(p[0],p[1])-0.2,p[1]);dm.scale.set(1,p[2],1);dm.rotation.set((srng()-0.5)*0.12,0,(srng()-0.5)*0.12);dm.updateMatrix();sm.setMatrixAt(i,dm.matrix);addObstacle(p[0],p[1],0.35);});
+  sm.instanceMatrix.needsUpdate=true;sm.frustumCulled=false;scene.add(sm);
+  /* the hot springs: each pool is a disc with rings of colour, deep blue in the middle out to orange at the edge */
+  const cv=document.createElement('canvas');cv.width=cv.height=128;const cc=cv.getContext('2d');
+  const pg=cc.createRadialGradient(64,64,0,64,64,64);
+  [[0,'#11468c'],[0.45,'#2c8fc4'],[0.62,'#46c1b3'],[0.76,'#d9d76a'],[0.9,'#e39a3c'],[1,'#c9662a']].forEach(s=>pg.addColorStop(s[0],s[1]));
+  cc.fillStyle=pg;cc.fillRect(0,0,128,128);
+  const poolMat=new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(cv)});
+  POOLS.forEach(p=>{
+    const m=new THREE.Mesh(new THREE.CircleGeometry(p[2]+1,28),poolMat);m.rotation.x=-Math.PI/2;
+    m.position.set(p[0],H(p[0]+p[2]+3,p[1])-0.35,p[1]);scene.add(m);
+    addObstacle(p[0],p[1],p[2]-1);
+  });
+  /* the geyser's vent: a ring of grey sinter on top of its mound */
+  const vent=new THREE.Mesh(new THREE.TorusGeometry(1.4,0.45,6,16),M(0xb9b2a6));vent.rotation.x=Math.PI/2;vent.position.set(GEYSER.x,H(GEYSER.x,GEYSER.z)+0.1,GEYSER.z);scene.add(vent);
+  /* a boardwalk winding between the pools, low enough to ski over */
+  const bw=[[-170,1290],[-115,1345],[-60,1395],[0,1415],[60,1430],[110,1470],[175,1500]];
+  for(let i=0;i<bw.length-1;i++){
+    const a=bw[i],b=bw[i+1],L=Math.hypot(b[0]-a[0],b[1]-a[1]),n=Math.ceil(L/3);
+    for(let k=0;k<n;k++){const t=(k+0.5)/n,x=lerp(a[0],b[0],t),z=lerp(a[1],b[1],t);const pl=bx(2.4,0.12,3.1,M(0x8a6a48),x,H(x,z)+0.1,z);pl.rotation.y=Math.atan2(b[0]-a[0],b[1]-a[1]);}
+  }
+  /* bison grazing on the warm ground at the edge of the basin */
+  [[-185,1330,0.6],[190,1380,-1.2],[-150,1555,2.1],[75,1560,2.8]].forEach(b=>bison(b[0],b[1],b[2]));
+  /* the snowcoach shelter at the bottom, with a vintage yellow snowcoach on tracks parked beside it */
+  const cp2=PADS[2],sh=new THREE.Group();sh.position.set(cp2.x,cp2.h,cp2.z);scene.add(sh);
+  bx(9,0.3,6,M(0x5a6068),0,3.4,0,sh);for(const cx of [-4.2,4.2])for(const cz of [-2.7,2.7])bx(0.3,3.4,0.3,M(0x6e4a31),cx,1.7,cz,sh);
+  bx(9,2,0.2,M(0x6e4a31),0,2.2,-2.9,sh);
+  const coach=new THREE.Group();coach.position.set(8,0,1);sh.add(coach);
+  bx(2.6,2.2,6,M(0xf2c12e),0,1.7,0,coach);bx(2.65,0.3,6.05,M(0xc8322a),0,1.4,0,coach);bx(2.66,0.7,4.4,M(0x1c2530,0x0d1a28),0,2.3,0.4,coach);
+  for(const e of [-1,1])bx(0.5,0.6,6.2,M(0x15181c),1.35*e,0.35,0,coach);
+  addObstacle(cp2.x,cp2.z,5.5);addObstacle(cp2.x+8,cp2.z+1,3.5);
+  /* the hidden glider: tucked in volcanic rocks on the east ridge, with a windsock above as the landmark */
+  const cg=legendNook(0x7d736a,Math.PI);
+  const wing=new THREE.Group();wing.position.set(0.4,0.9,0);wing.rotation.set(0.1,0.6,-0.55);cg.add(wing);
+  bx(0.55,0.42,2.0,M(0xff7a1a,0x3a1500),0,0,0,wing);bx(0.56,0.43,0.12,M(0xf2f7fb),0,0,0.5,wing);bx(0.56,0.43,0.12,M(0xf2f7fb),0,0,-0.5,wing);
+  for(const e of [-1,1])bx(0.04,0.04,2.6,M(0x2a2f36),0.18*e,0.28,0.1,wing);
+  legendGlow(cg,0xffb347);
+  const cp=PADS[3],ws=new THREE.Group(),wsx=cp.x-9,wsz=cp.z-4;ws.position.set(wsx,H(wsx,wsz),wsz);scene.add(ws);
+  bx(0.12,6.5,0.12,M(0x30353c),0,3.25,0,ws);
+  legendRag=new THREE.Group();legendRag.position.set(0,6.2,0);ws.add(legendRag);
+  const sock=new THREE.Mesh(new THREE.ConeGeometry(0.45,2.4,12,1,true),new THREE.MeshLambertMaterial({color:0xff7a1a,emissive:0x5a2400,side:THREE.DoubleSide}));
+  sock.rotation.z=Math.PI/2;sock.position.x=-1.2;legendRag.add(sock);
+  const band=new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.38,0.4,12,1,true),new THREE.MeshLambertMaterial({color:0xf2f7fb,side:THREE.DoubleSide}));band.rotation.z=Math.PI/2;band.position.x=-1.1;legendRag.add(band);
+  addObstacle(wsx,wsz,0.5);
+  buildNotice();
+  finishBanner('WASHBURN HOT SPRINGS');
+})();
+
 /* ================= jump structures ================= */
 /* build every jump in JUMPS. Wooden ramps get a plank surface that follows the snow shape; cliffs get boulders. Flags mark every lip. */
 (function buildJumps(){
@@ -889,6 +1145,8 @@ class Parts{
 const spray=new Parts(500,false,0xffffff,9);
 const trail=new Parts(520,true,0xffffff,0);
 const burst=new Parts(160,true,0xffd27a,6);
+/* steam drifting up from Yellowstone's hot springs and geyser (negative gravity makes it rise) */
+const steam=YELL?new Parts(900,false,0xf2f5f8,-1.6):null;
 
 /* falling snow */
 const SNOW_N=650;
@@ -901,6 +1159,7 @@ snow.frustumCulled=false;scene.add(snow);
 /* ================= camera ================= */
 /* the follow camera sits behind and above the skier, swings round smoothly as you turn, pulls back and widens with speed, and never dips below the snow */
 let camYaw=0,camDip=0,shake=0;
+const _sR=new THREE.Vector3(),_sU=new THREE.Vector3(),_sC=new THREE.Vector3();
 const camPos=new THREE.Vector3(),look=new THREE.Vector3();
 /* put the camera straight behind the skier at once (after a teleport, so it does not swoop across the map) */
 function snapCamera(){
@@ -928,5 +1187,11 @@ function updateCamera(dt){
   const fov=P.walk?60:62+Math.min(sp,46)*0.5;
   if(Math.abs(camera.fov-fov)>0.05){camera.fov=fov;camera.updateProjectionMatrix();}
   $('vignette').style.opacity=clamp((sp-26)/22,0,0.9).toFixed(2);
-  sun.position.set(P.x+160,P.y+260,P.z-110);sun.target.position.set(P.x,P.y,P.z);
+  /* the sun and its shadow box follow the skier. The centre is snapped to whole shadow-map pixels so shadow edges do not shimmer as you move. */
+  const tx=SHADOW_SPAN*2/SHADOW_MAP,rx=_sR.set(SUN_DIR.z,0,-SUN_DIR.x).normalize(),ux=_sU.crossVectors(SUN_DIR,rx);
+  _sC.set(P.x,P.y,P.z);
+  const a=Math.round(_sC.dot(rx)/tx)*tx,b=Math.round(_sC.dot(ux)/tx)*tx,c=_sC.dot(SUN_DIR);
+  _sC.copy(rx).multiplyScalar(a).addScaledVector(ux,b).addScaledVector(SUN_DIR,c);
+  sun.target.position.copy(_sC);sun.position.copy(_sC).addScaledVector(SUN_DIR,320);
+  skyDome.position.copy(camera.position);skyDome.scale.setScalar(camera.far*0.009);
 }

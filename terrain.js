@@ -14,8 +14,9 @@ const angdiff=(a,b)=>{let d=a-b;while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+
 const lineX=z=>38*Math.sin(z*0.0105)+16*Math.sin(z*0.027+1.0);
 /* z runs downhill and x runs across the slope. Each mountain sets where you start, where the finish line is and how far down you can go.
    Tutorial: start at 10, finish at 1590. Lake Tahoe: start by the summit station, finish at the base lodge just above the lake shore
-   (ZMAX stops you at the water). Mount Washington: start below the summit buildings, finish at the Pinkham Notch lodge. */
-const COURSE=TUTORIAL?{start:10,finish:1590,zmax:1745}:TAHOE?{start:-185,finish:1520,zmax:1605}:{start:-245,finish:1560,zmax:1700};
+   (ZMAX stops you at the water). Mount Washington: start below the summit buildings, finish at the Pinkham Notch lodge.
+   Yellowstone: start below Mount Washburn's lookout, finish in the hot-spring basin. */
+const COURSE=TUTORIAL?{start:10,finish:1590,zmax:1745}:TAHOE?{start:-185,finish:1520,zmax:1605}:WASH?{start:-245,finish:1560,zmax:1700}:{start:-240,finish:1520,zmax:1640};
 const FINISH_Z=COURSE.finish, START_Z=COURSE.start, SUMMIT_Z=-270;
 const XMAX=410, ZMIN=-312, ZMAX=COURSE.zmax;
 
@@ -67,6 +68,9 @@ addJump('cl',610,-62,false);                       /* The Edge (map fragment II)
 [[255,-30],[500,30],[890,-30],[1270,30]].forEach(a=>placeFree('cl',a[0],lineX(a[0]-15)+a[1]));   /* risky cliffs beside the line */
 [['ws',30,40],['wb',200,-52],['ws',330,-26],['ws',460,58],['wb',700,52],['ws',830,-40],['wb',1090,-58],['ws',1220,44],['wb',1330,-46],['ws',1480,-30],['ws',560,40],['wb',1190,-20],
   ['wb',300,105],['ws',560,-105],['wb',860,125],['cl',1000,125],['ws',1160,-115],['wb',1400,105],['cl',1440,-130],['ws',150,-115],['ws',640,120],['wb',1010,-130],['cl',350,-135],['ws',930,135]].forEach(a=>placeFree(a[0],a[1],a[2]));   /* free ride */
+} else if(YELL){
+  /* Mount Washburn: a few volcanic rock bands to drop off on the open upper slopes */
+  [[150,140],[320,-150],[600,170],[880,-160],[460,-60]].forEach(a=>addJump('cl',a[0],a[1],false));
 } else if(WASH){
   /* Mount Washington has no built jumps either: just a few rock bands to drop off, away from the main line */
   [[140,120],[230,-140],[1050,-115],[1250,125],[960,150]].forEach(a=>addJump('cl',a[0],a[1],false));
@@ -88,6 +92,7 @@ function kick(k,x,z){
 function rawH(x,z){
   if(TAHOE)return tahoeH(x,z);
   if(WASH)return washH(x,z);
+  if(YELL)return yellH(x,z);
   const a=-0.31*z,b=-500;
   const base=0.5*(a+b+Math.sqrt((a-b)*(a-b)+2500));
   const ax=Math.abs(x);
@@ -118,8 +123,10 @@ function tahoeH(x,z){
    between cliff walls (Lion Head on the left, Boott Spur on the right), then the long forested valley down to Pinkham Notch.
    WASH_LINE is the height down the middle of the run at each z, smoothed into a curve. */
 const WASH_LINE=[[-340,282],[-280,305],[-150,240],[0,172],[180,146],[340,122],[390,104],[450,50],[520,-12],[580,-44],[700,-78],[820,-112],[1000,-196],[1300,-330],[1560,-452],[1700,-490],[1900,-512]];
-function washLine(z){
-  const T=WASH_LINE,n=T.length;
+function washLine(z){return profileLine(WASH_LINE,z);}
+/* a smooth curve through a table of [z, height] points; beyond the ends it carries on in a straight line */
+function profileLine(T,z){
+  const n=T.length;
   if(z<=T[0][0])return T[0][1]-(T[0][0]-z)*0.6;
   if(z>=T[n-1][0])return T[n-1][1]-(z-T[n-1][0])*0.05;
   let i=0;while(z>T[i+1][0])i++;
@@ -147,13 +154,36 @@ function washH(x,z){
   for(let i=0;i<JUMPS.length;i++) h+=kick(JUMPS[i],x,z);
   return h;
 }
+/* Yellowstone: Mount Washburn, a broad old volcano on the rim of the caldera. Open snowfields up top, lodgepole forest lower down,
+   and a flat hot-spring basin at the bottom with steaming pools and a small geyser. */
+const YELL_LINE=[[-340,280],[-280,300],[-150,262],[0,215],[200,150],[400,80],[600,10],[800,-70],[1000,-160],[1200,-280],[1300,-330],[1400,-350],[1550,-366],[1700,-376],[1900,-392]];
+/* the hot springs: [x, z, radius]. The geyser is a low mound of grey sinter that erupts every so often (see main.js). */
+const POOLS=YELL?[[-95,1320,9],[-40,1440,12],[120,1300,7],[150,1450,10],[-140,1420,6],[95,1395,5],[-75,1490,7]]:[];
+const GEYSER=YELL?{x:-10,z:1360}:null;
+/* how far into the hot-spring basin a point is: 1 in the middle, 0 outside. No snow and no trees in here. */
+function thermalIn(x,z){if(!YELL)return 0;return 1-smooth(0.85,1.15,Math.pow((x+5)/200,2)+Math.pow((z-1400)/140,2));}
+function yellH(x,z){
+  const ax=Math.abs(x);
+  let h=profileLine(YELL_LINE,z);
+  h-=0.3*ax*(1-smooth(-140,60,z));                                           /* the summit dome falls away to the sides */
+  h+=10*Math.exp(-((x-12)*(x-12)+(z+276)*(z+276))/2500);                     /* the summit itself */
+  h+=(ax*ax/57600*40+40*smooth(250,480,ax))*(1-0.85*smooth(1200,1600,z));   /* the valley sides, opening out round the basin */
+  const tb=thermalIn(x,z),fade=smooth(1750,1500,z)*(0.25+0.75*smooth(-250,-120,z))*(1-0.8*tb);
+  h+=(Math.sin(x*0.05+z*0.023)*4+Math.sin(x*0.13-z*0.06)*1.6+Math.sin(z*0.04+0.7)*3+Math.sin(x*0.024+z*0.014)*6)*0.7*fade;
+  for(let i=0;i<POOLS.length;i++){const p=POOLS[i],d=Math.hypot(x-p[0],z-p[1]);if(d<p[2]+3)h-=1.4*(1-smooth(p[2]-1,p[2]+3,d));}   /* each pool sits in a shallow bowl */
+  if(GEYSER)h+=2.6*(1-smooth(0,10,Math.hypot(x-GEYSER.x,z-GEYSER.z)));       /* the geyser's sinter mound */
+  for(let i=0;i<JUMPS.length;i++) h+=kick(JUMPS[i],x,z);
+  return h;
+}
 /* the lake's surface height (only used at Tahoe) */
 const WATER_Y=TAHOE?tahoeH(0,1628):null;
 /* flat pads so buildings sit level. Tutorial: the outpost, the shelter and the cave. Tahoe: the summit station, a mid-mountain hut, the base lodge and the hidden board cache. */
 /* Mount Washington: the summit buildings, the Hermit Lake shelters, the Pinkham Notch lodge, the hidden parka and frozen Hermit Lake. */
 const PADS=TUTORIAL?[{x:68,z:240,r:11},{x:-92,z:960,r:15},{x:98,z:1350,r:9}]
   :TAHOE?[{x:42,z:-222,r:10},{x:-140,z:760,r:9},{x:70,z:1548,r:14},{x:-258,z:1010,r:6}]
-  :[{x:10,z:-282,r:16},{x:-70,z:860,r:10},{x:60,z:1500,r:14},{x:225,z:290,r:6},{x:40,z:820,r:24}];
+  :WASH?[{x:10,z:-282,r:16},{x:-70,z:860,r:10},{x:60,z:1500,r:14},{x:225,z:290,r:6},{x:40,z:820,r:24}]
+  /* Yellowstone: the summit lookout, a warming hut, the snowcoach shelter at the bottom and the hidden glider */
+  :[{x:12,z:-276,r:12},{x:-120,z:780,r:9},{x:-215,z:1500,r:12},{x:235,z:120,r:6}];
 PADS.forEach(p=>{p.h=rawH(p.x,p.z);});
 /* H(x,z) is the height of the snow at any point. Almost everything uses it: physics, trees, the camera, the minimap. */
 function H(x,z){

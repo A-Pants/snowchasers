@@ -12,7 +12,7 @@ const net={mem:{},recGhost:null,myLabel:'',state:'none',isOwner:false,error:'',r
   remotes:new Map(),names:{},last:{},sendT:0,seen:new Set(),invite:null,myCall:null,lane:0,unsubs:[],resolving:false,uiT:0,boardT:0};
 /* helpers for checking incoming data: round numbers, allow only known gear ids, keep numbers in range, and clean up room codes */
 const r2=v=>Math.round(v*100)/100,r1=v=>Math.round(v*10)/10;
-const OK_ITEM={skis:['std','lost','board'],jacket:['std','apex','rime'],pants:['std','ridge'],boots:['std','trail']};
+const OK_ITEM={skis:['std','lost','board'],jacket:['std','apex','rime'],pants:['std','ridge'],boots:['std','trail'],pack:['std','glider']};
 const okItem=(slot,v)=>OK_ITEM[slot].indexOf(v)>=0?v:'std';
 const fin=(v,lo,hi,d)=>{v=+v;return Number.isFinite(v)?clamp(v,lo,hi):d;};
 const sanitizeRoom=t=>{t=String(t||'').toLowerCase().replace(/[^a-z0-9_.-]+/g,'-').replace(/-{2,}/g,'-').replace(/^[^a-z0-9]+|[^a-z0-9]+$/g,'').slice(0,48).replace(/[^a-z0-9]+$/,'');return t||'snowchasers';};
@@ -38,17 +38,17 @@ function parseGhostField(g){
 function parsePresence(p){
   if(!p||!Array.isArray(p.s)||p.s.length<7)return null;
   const s=p.s,k=Array.isArray(p.k)?p.k:[],f=Array.isArray(p.f)?p.f:[],lk=Array.isArray(p.lk)?p.lk:[],cl=Array.isArray(p.cl)?p.cl:[];
-  const fl=fin(p.fl,0,255,1)|0,dflt=[0xe8553d,0x25313f,0x161d28,0x2f8fe0];
+  const fl=fin(p.fl,0,255,1)|0,dflt=[0xe8553d,0x25313f,0x161d28,0x2f8fe0,0x33404f];
   const r=p.rr,c=p.rc;
   return {
-    x:fin(s[0],-420,420,0),y:fin(s[1],-700,300,0),z:fin(s[2],-330,1760,0),h:fin(s[3],-60,60,0),
+    x:fin(s[0],-420,420,0),y:fin(s[1],-700,450,0),z:fin(s[2],-330,1760,0),h:fin(s[3],-60,60,0),
     vx:fin(s[4],-90,90,0),vy:fin(s[5],-90,90,0),vz:fin(s[6],-90,90,0),
     steer:fin(k[0],-1,1,0),tuck:fin(k[1],0,1,0),brake:fin(k[2],0,1,0),load:fin(k[3],0,1,0),
     visFlip:fin(f[0],-90,90,0),visSpin:fin(f[1],-90,90,0),
     grounded:!!(fl&1),crash:!!(fl&2),grab:[null,'up','down','left','right'][(fl>>2)&7]||null,sw:!!(fl&32),walk:!!(fl&64),
     mode:'xcrft'.indexOf(String(p.m||'x').charAt(0))>=0?String(p.m||'x').charAt(0):'x',
-    look:{skis:okItem('skis',lk[0]),jacket:okItem('jacket',lk[1]),pants:okItem('pants',lk[2]),boots:okItem('boots',lk[3]),
-          c:[0,1,2,3].map(i=>(fin(cl[i],0,0xffffff,dflt[i])|0))},
+    look:{skis:okItem('skis',lk[0]),jacket:okItem('jacket',lk[1]),pants:okItem('pants',lk[2]),boots:okItem('boots',lk[3]),pack:okItem('pack',lk[4]),
+          c:[0,1,2,3,4].map(i=>(fin(cl[i],0,0xffffff,dflt[i])|0))},
     sc:fin(p.sc,0,1e9,0),bt:(p.bt===null||p.bt===undefined)?null:fin(p.bt,0,9999,null),db:(p.db===null||p.db===undefined)?null:fin(p.db,0,9999,null),sd:(typeof p.sd==='string'&&p.sd.length<=16)?p.sd:'',
     lb:parseRelay(p.lb),gh:parseGhostField(p.gh),
     rc:(c&&typeof c.t==='string'&&c.t.length<=16)?{t:c.t,d:fin(c.d,3,30,12)}:null,
@@ -170,7 +170,7 @@ function buildPresence(){
     f:[r2(P.visFlip),r2(P.visSpin)],
     fl:(P.grounded?1:0)|(P.crash>0?2:0)|((GRAB_CODE[P.grab]||0)<<2)|(P.sw?32:0)|(P.walk?64:0),
     m:modeCode(),
-    lk:[g.skis,g.jacket,g.pants,g.boots],cl:L.c,
+    lk:[g.skis,g.jacket,g.pants,g.boots,g.pack],cl:L.c,
     sc:Math.round(state.style),bt:state.best===null?null:r2(state.best),db:state.runBest===null?null:r2(state.runBest),sd:SEED_ID,
     lb:relayBoard(),gh:ghostForPresence(),
     rr:raceInfo(),rc:net.myCall

@@ -6,9 +6,10 @@ const ICON={"backpack": "<path d=\"M9 5.5V5a3 3 0 0 1 6 0v.5\"/><path d=\"M6.5 8
 const ico=n=>'<svg viewBox="0 0 24 24" aria-hidden="true">'+(ICON[n]||'')+'</svg>';
 ICON.trophy='<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5.5a2 2 0 0 0 0 4H8M16 6h2.5a2 2 0 0 1 0 4H16"/><path d="M12 13v4M9.5 20h5M10 17h4v3h-4z"/>';
 ICON.board='<g transform="rotate(35 12 12)"><rect x="9" y="2.5" width="6" height="19" rx="3"/><path d="M9.8 9h4.4M9.8 15h4.4"/></g>';
+ICON.spin='<path d="M4.5 12a7.5 7.5 0 0 1 13.2-4.9"/><path d="M18.5 3.5v4h-4"/><path d="M19.5 12a7.5 7.5 0 0 1-13.2 4.9"/><path d="M5.5 20.5v-4h4"/>';
 ICON.sliders='<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>';
 /* put an icon into each button's <span> */
-[['icTrophy','trophy'],['icMenu','sliders'],['icQuest','check'],['icRace','flag'],['icStyle','star'],['icMap','map'],['icGear','backpack'],['icBoot','boot'],['icSkis','skis'],['icBoard','board'],['icPeople','people'],['icHeli','heli'],['icPeak','peak']].forEach(a=>{$(a[0]).innerHTML=ico(a[1]);});
+[['icTrophy','trophy'],['icMenu','sliders'],['icQuest','check'],['icRace','flag'],['icStyle','star'],['icMap','map'],['icGear','backpack'],['icBoot','boot'],['icSkis','skis'],['icBoard','board'],['icSpin','spin'],['icPeople','people'],['icHeli','heli'],['icPeak','peak']].forEach(a=>{$(a[0]).innerHTML=ico(a[1]);});
 /* double-click (or double-tap on a phone) any panel to collapse it into an icon; tap the icon to bring it back */
 const UI={collapsed:{}};
 try{UI.collapsed=JSON.parse(localStorage.getItem('snowchasers.ui')||'{}')||{};}catch(err){UI.collapsed={};}

@@ -107,7 +107,11 @@ function showPin(pin){
   GL.sel=pin;GL.spinTo={lon:pin.lon,lat:clamp(pin.lat,-60,60)};
   $('pinName').textContent=pin.name;$('pinRegion').textContent=pin.region||'';
   const go=$('pinGo');
-  if(pin.kind==='open'){
+  const need=pin.kind==='open'&&pin.id!==MOUNTAIN&&MOUNTAINS[pin.id].needs&&!state.have[MOUNTAINS[pin.id].needs];
+  if(need){   /* open, but you need some gear before you can go */
+    go.disabled=true;go.classList.add('locked');go.textContent='Too cold without a warm parka';
+    $('pinNote').textContent=MOUNTAINS[pin.id].needText;
+  } else if(pin.kind==='open'){
     go.disabled=false;go.classList.remove('locked');
     go.textContent=pin.id===MOUNTAIN?'You are here: drop back in':'Travel here';
     $('pinNote').textContent=MOUNTAINS[pin.id].blurb||'';
@@ -118,7 +122,7 @@ function showPin(pin){
   $('pinCard').classList.remove('hidden');
 }
 $('pinGo').addEventListener('click',()=>{
-  const pin=GL.sel;if(!pin||pin.kind!=='open')return;
+  const pin=GL.sel;if(!pin||pin.kind!=='open'||$('pinGo').disabled)return;
   if(pin.id===MOUNTAIN){closeWorlds();if(state.mode==='title')startGame();return;}
   travelTo(pin.id);
 });

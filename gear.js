@@ -15,16 +15,20 @@ const ITEMS={
   pants:[{id:'std',name:'Trail pants',stat:'Balanced.'},
         {id:'ridge',name:'Ridge pants',stat:'Tighter carving, a little more drag from the baggy legs.',lock:'Keep building your style.'}],
   boots:[{id:'std',name:'Trail boots',stat:'Balanced.'},
-        {id:'trail',name:'Trailblazer boots',stat:'Stronger push on flat ground and softer landings, slightly slower to turn.',lock:'Ski down to the base lodge.'}]
+        {id:'trail',name:'Trailblazer boots',stat:'Stronger push on flat ground and softer landings, slightly slower to turn.',lock:'Ski down to the base lodge.'}],
+  /* packs are tools you carry on your back. The Thermal Wing's glide will be switched on in a later update. */
+  pack:[{id:'std',name:'Day pack',stat:'Carries the basics.'},
+        {id:'glider',name:'The Thermal Wing',rarity:'legendary',hidden:true,stat:'Legendary glider pack. Its wing folds out to glide through the air. Gliding is coming in a later update.'}]
 };
 /* the slots in the order the Gear panel shows them: [id, label] */
-const SLOTS=[['skis','Skis / board'],['jacket','Jacket'],['pants','Pants'],['boots','Boots']];
+const SLOTS=[['skis','Skis / board'],['jacket','Jacket'],['pants','Pants'],['boots','Boots'],['pack','Pack']];
 /* the colour choices for each slot, the material the colour paints, and the current colour */
 const PALETTE={
   skis:{list:[0x2f8fe0,0xff5a7a,0xffd27a,0x7dff9a,0xf2f7fb,0xb07bff],cur:0x2f8fe0},
   jacket:{mat:jacketMat,list:[0xe8553d,0xf2b134,0x3fa56b,0x3b82d6,0x8a5bd1,0x1b2330,0x19b4c9],cur:0xe8553d},
   pants:{mat:pantsMat,list:[0x25313f,0x3a4a2f,0x6b3b2a,0x2b3f6b,0xcfd6de,0x14181f],cur:0x25313f},
-  boots:{mat:bootMat,list:[0x161d28,0xff9f1c,0xe8553d,0x3fa56b,0xf2f7fb,0x7a5a3a],cur:0x161d28}
+  boots:{mat:bootMat,list:[0x161d28,0xff9f1c,0xe8553d,0x3fa56b,0xf2f7fb,0x7a5a3a],cur:0x161d28},
+  pack:{mat:packMat,list:[0x33404f,0xff7a1a,0x3fa56b,0x8a5bd1,0xe8553d,0xcfd6de],cur:0x33404f}
 };
 /* haveItem(id) is true if unlocked. newItems marks items to flag as new. gearUI holds the panel's buttons. fmtN(12345) gives "12,345". */
 const haveItem=id=>id==='std'||!!state.have[id];
@@ -38,7 +42,7 @@ function setSlotColor(slot,hex){
   applyGear();
 }
 /* what you are wearing right now, in the format other players and ghosts use */
-function currentLook(){const g=state.gear;return {skis:g.skis,jacket:g.jacket,pants:g.pants,boots:g.boots,c:[PALETTE.jacket.cur,PALETTE.pants.cur,PALETTE.boots.cur,PALETTE.skis.cur]};}
+function currentLook(){const g=state.gear;return {skis:g.skis,jacket:g.jacket,pants:g.pants,boots:g.boots,pack:g.pack,c:[PALETTE.jacket.cur,PALETTE.pants.cur,PALETTE.boots.cur,PALETTE.skis.cur,PALETTE.pack.cur]};}
 /* apply the equipped gear: repaint the skier and work out the SKI stats that player.js uses */
 function applyGear(){
   const g=state.gear;state.skis=g.skis;

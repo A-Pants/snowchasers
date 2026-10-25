@@ -373,6 +373,7 @@ body.touch #stance{left:50%;transform:translateX(-50%);bottom:auto;top:calc(var(
     </div>
     <div id="dock">
       <button class="ibtn" id="gearBtn" title="Gear (G)" aria-label="Gear"><span id="icGear"></span></button>
+      <button class="ibtn hidden" id="spinBtn" title="Spin 180 (Q)" aria-label="Spin 180 (Q)"><span id="icSpin"></span></button>
       <button class="ibtn hidden" id="walkBtn" title="Walk (E)" aria-label="Walk (E)"><span id="icBoot"></span><span id="icSkis" class="hidden"></span><span id="icBoard" class="hidden"></span></button>
       <button class="ibtn hidden" id="ridersBtn" title="Riders (R)" aria-label="Riders"><span id="icPeople"></span><b class="badge" id="ridersBadge">1</b></button>
       <button class="ibtn hidden" id="boardBtn" title="Leaderboard (B)" aria-label="Leaderboard"><span id="icTrophy"></span></button>
@@ -388,7 +389,7 @@ body.touch #stance{left:50%;transform:translateX(-50%);bottom:auto;top:calc(var(
   <div id="toast"><div class="t1"></div><div class="t2"></div></div>
   <div id="trick"><div class="tn"></div><div class="tp"></div></div>
   <div id="callout"></div>
-  <div id="hints">WASD leans (W go, S brake, A and D carve). Arrow keys trick (down loads, up hops). E switches between walking, skis and the snowboard (once you find one). Keyboard only, no mouse needed. Hop (arrow up) then push WASD to flip and spin; arrows grab. Off a ramp, let go of WASD first. Hold Backspace to ride the helicopter back up. B leaderboard, Esc menu. Double-click any panel to collapse it.</div>
+  <div id="hints">WASD leans (W go, S brake, A and D carve). Arrow keys trick (down loads, up hops). E switches between walking, skis and the snowboard (once you find one). Q spins 180 on the snow. Keyboard only, no mouse needed. Hop (arrow up) then push WASD to flip and spin; arrows grab. Off a ramp, let go of WASD first. Hold Backspace to ride the helicopter back up. B leaderboard, Esc menu. Double-click any panel to collapse it.</div>
 </div>
 
 <div id="title">
@@ -465,6 +466,7 @@ body.touch #stance{left:50%;transform:translateX(-50%);bottom:auto;top:calc(var(
   <div class="mrow"><label for="volSfx">Effects</label><input type="range" id="volSfx" min="0" max="100" step="1"></div>
   <div class="mrow"><label>Sound</label><button class="chip" id="muteBtn">Sound on (M)</button></div>
   <div class="mrow"><label>Ghosts</label><button class="chip" id="ghostBtn">Ghosts on</button></div>
+  <div class="mrow"><label>Graphics</label><button class="chip" id="gfxBtn">High (shadows)</button></div>
   <div class="mrow"><label for="seedIn">Course seed</label><span class="mpr" style="gap:8px"><input class="mpin" id="seedIn" type="number" min="1" max="999999" style="max-width:110px"><button class="chip" id="seedBtn">New course</button></span></div>
   <p class="note">The seed changes the forest and rocks. Every seed has its own best times and leaderboard. All sound and music is generated in code, so there are no audio files and nothing to license.</p>
   <div class="mrow"><label>Mountain</label><button class="chip" id="menuWorld">World map</button></div>
