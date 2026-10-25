@@ -313,96 +313,154 @@ function capsule(r,len,mat,parent,x,y,z){
   const m=new THREE.Mesh(new THREE.LatheGeometry(pts,12),mat);m.position.set(x||0,y||0,z||0);parent.add(m);return m;
 }
 function joint(parent,x,y,z){const g=new THREE.Group();g.position.set(x,y,z);parent.add(g);return g;}
+/* a round shape spun from a side profile: pts are [radius, height] pairs from bottom to top. sx and sz squash it into an oval. */
+function lathe(pts,mat,parent,y,sx,sz,seg){
+  const m=new THREE.Mesh(new THREE.LatheGeometry(pts.map(p=>new THREE.Vector2(Math.max(0.0001,p[0]),p[1])),seg||14),mat);
+  m.position.y=y||0;m.scale.set(sx||1,1,sz||1);parent.add(m);return m;
+}
+/* a fabric, plastic or metal surface: rough fabrics catch soft light, smooth plastics show a highlight */
+const SM=(c,r,e)=>{const m=new THREE.MeshStandardMaterial({color:c,roughness:r===undefined?0.8:r,metalness:0,emissive:e||0x000000});m.color.convertSRGBToLinear();return m;};
+/* a ski (or snowboard) shape: narrow at the waist under the foot, wider at tip and tail, with the tip curving up (and the tail too if both) */
+function skiGeo(w,len,th,tipRise,both){
+  const g=new THREE.BoxGeometry(w,th,len,1,1,28),p=g.attributes.position;
+  for(let i=0;i<p.count;i++){
+    const z=p.getZ(i),u=z/(len/2);                                       /* -1 at the tail, +1 at the tip */
+    const width=1-0.16*Math.cos(u*Math.PI/2);                             /* sidecut: about 15% narrower in the middle */
+    const tipU=both?Math.abs(u):Math.max(0,u),tail=both?0:Math.max(0,-u);
+    const rise=tipRise*Math.pow(Math.max(0,(tipU-0.78)/0.22),2)+0.025*Math.pow(Math.max(0,(tail-0.85)/0.15),2);
+    const round=1-0.55*Math.pow(Math.max(0,(Math.abs(u)-0.86)/0.14),2);  /* rounded ends */
+    p.setX(i,p.getX(i)*width*round);p.setY(i,p.getY(i)+rise);
+  }
+  g.computeVertexNormals();return g;
+}
 /* makeRider builds one skier and returns its parts so they can be posed and recoloured. The joints are nested groups:
    pelvis -> hips -> knees -> ankles for the legs, and pelvis -> upper body -> shoulders -> elbows -> hands for the arms.
    The Apex Shell, Ridge pants and Trailblazer boots are extra pieces that stay hidden until that gear is worn. */
 function makeRider(){
-  const mats={jacket:M(0xe8553d),accent:new THREE.MeshLambertMaterial({color:0x2f8fe0}),pants:M(0x25313f),boot:M(0x161d28),
-    trim:new THREE.MeshLambertMaterial({color:0xf2f7fb,emissive:0x1d2630}),skiBase:M(0x2c3440),stripe:new THREE.MeshBasicMaterial({color:0x39d0ff}),
-    glove:M(0x1b222c),pole:M(0x8d97a3),pack:M(0x33404f)};
+  const mats={jacket:SM(0xe8553d,0.72),accent:SM(0x2f8fe0,0.6),pants:SM(0x25313f,0.85),boot:SM(0x161d28,0.38),
+    trim:SM(0xf2f7fb,0.6,0x1d2630),skiBase:SM(0x2c3440,0.35),stripe:new THREE.MeshBasicMaterial({color:0x39d0ff}),
+    glove:SM(0x1b222c,0.9),pole:SM(0x8d97a3,0.3),pack:SM(0x33404f,0.85)};
+  const dark=SM(0x15191f,0.5),rubber=SM(0x0d0f12,0.95),buckle=SM(0xb9c0c8,0.3);
   const parts={},gp={shell:new THREE.Group(),ridge:new THREE.Group(),ridgeSides:[],trailSides:[]},legs=[],boots=[],legG={},skiG={},poles=[],arms={};
   const group=new THREE.Group();
   const pelvis=joint(group,0,STAND_HIP,0);pelvis.rotation.order='YXZ';
-  /* hips and seat */
-  const hips=capsule(0.13,0.16,mats.pants,pelvis,0,0.03,0);hips.rotation.z=Math.PI/2;hips.scale.set(1,1,0.85);
+  /* hips and seat: a rounded block of ski pants with a belt line */
+  lathe([[0.02,-0.1],[0.12,-0.08],[0.15,-0.01],[0.155,0.07],[0.15,0.12]],mats.pants,pelvis,0,1.2,0.82);
   const ridge=gp.ridge;pelvis.add(ridge);ridge.visible=false;
-  bx(0.3,0.14,0.03,mats.trim,0,0.03,-0.12,ridge);                 /* Ridge pants seat patch */
-  /* legs: thigh, knee, shin, ankle and boot. The boot stays level whatever the knee is doing. */
+  bx(0.3,0.14,0.03,mats.trim,0,0.02,-0.13,ridge);                 /* Ridge pants seat patch */
+  /* legs: thigh, knee, shin, ankle and boot. Ski pants are loose and flare out over the top of the boots.
+     The boot stays level whatever the knee is doing. */
   for(const sd of [-1,1]){
-    const hip=joint(pelvis,0.11*sd,0,0);legG[sd]=hip;
-    legs.push(capsule(0.085,THIGH-0.12,mats.pants,hip,0,-THIGH/2,0));
+    const hip=joint(pelvis,0.1*sd,0,0);legG[sd]=hip;
+    legs.push(lathe([[0.075,-THIGH],[0.08,-THIGH*0.7],[0.092,-THIGH*0.3],[0.095,-0.02],[0.08,0.04]],mats.pants,hip,0,1,1.05));
     const knee=joint(hip,0,-THIGH,0);
-    legs.push(capsule(0.068,SHIN-0.1,mats.pants,knee,0,-SHIN/2,0));
+    const kp=new THREE.Mesh(new THREE.SphereGeometry(0.078,12,10),mats.pants);knee.add(kp);legs.push(kp);
+    legs.push(lathe([[0.098,-SHIN+0.02],[0.09,-SHIN+0.1],[0.074,-SHIN*0.55],[0.072,-0.1],[0.075,0.02]],mats.pants,knee,0,1,1.08));   /* the flare covers the boot cuff */
+    bx(0.012,0.2,0.05,dark,0.075*sd,-SHIN+0.14,0,knee);               /* side zip on the lower leg */
     const ankle=joint(knee,0,-SHIN,0);
-    const boot=bx(0.14,0.16,0.32,mats.boot,0,-0.01,0.04,ankle);boots.push(boot);
+    /* the ski boot: a hard plastic shell with a tall cuff, a rounded toe, two buckles and a rubber sole */
+    const boot=new THREE.Group();boot.position.set(0,-0.01,0.04);ankle.add(boot);boots.push(boot);
+    bx(0.13,0.1,0.28,mats.boot,0,-0.02,0.02,boot);
+    const toe=new THREE.Mesh(new THREE.SphereGeometry(0.068,10,8,0,Math.PI*2,0,Math.PI/2),mats.boot);toe.scale.set(0.95,0.75,1.15);toe.position.set(0,0.02,0.13);boot.add(toe);
+    lathe([[0.075,0.0],[0.078,0.08],[0.072,0.17]],mats.boot,boot,0.02,1,1.05);   /* cuff */
+    bx(0.14,0.03,0.32,rubber,0,-0.075,0.02,boot);                    /* sole */
+    for(const by of [0.05,0.12]){bx(0.03,0.018,0.06,buckle,0.075*sd,by,0.02,boot);}   /* buckles on the outside */
+    bx(0.15,0.02,0.05,dark,0,0.17,-0.02,boot);                       /* power strap */
     hip.userData={knee:knee,ankle:ankle};
     const rs=new THREE.Group();hip.add(rs);rs.visible=false;gp.ridgeSides.push(rs);   /* Ridge pants: outer stripe down the leg */
     bx(0.025,THIGH-0.08,0.07,mats.trim,0.1*sd,-THIGH/2,0,rs);
     const rc=new THREE.Group();knee.add(rc);rc.visible=false;gp.ridgeSides.push(rc);  /* and a bright cuff over the boot */
-    bx(0.2,0.05,0.2,mats.trim,0,-SHIN+0.1,0,rc);
+    bx(0.22,0.05,0.22,mats.trim,0,-SHIN+0.08,0,rc);
     const ts=new THREE.Group();ankle.add(ts);ts.visible=false;gp.trailSides.push(ts);   /* Trailblazer boots: buckle straps */
     bx(0.16,0.025,0.34,mats.trim,0,-0.02,0.04,ts);bx(0.16,0.025,0.34,mats.trim,0,0.05,0.04,ts);bx(0.16,0.035,0.2,mats.accent,0,0.12,0,ts);
-    /* skis hang off the group, not the leg, so they stay flat; poseRider moves them under each boot every frame */
+    /* skis hang off the group, not the leg, so they stay flat; poseRider moves them under each boot every frame.
+       A shaped ski with sidecut and an upturned tip, a coloured topsheet, and a toe and heel binding with brake arms. */
     const sg=new THREE.Group();group.add(sg);skiG[sd]=sg;
-    const ski=bx(0.11,0.035,1.85,mats.skiBase,0,0.018,0.15,sg);
-    const str=bx(0.04,0.01,1.5,mats.stripe,0,0.04,0.15,sg);
-    const tip=bx(0.11,0.035,0.3,mats.accent,0,0.06,1.18,sg);tip.rotation.x=-0.4;
-    const tail=bx(0.11,0.035,0.18,mats.skiBase,0,0.035,-0.83,sg);tail.rotation.x=0.25;
-    bx(0.12,0.05,0.34,M(0x2b333d),0,0.055,0.03,sg);                 /* binding */
+    const ski=new THREE.Mesh(skiGeo(0.105,1.85,0.022,0.09,false),mats.skiBase);ski.position.set(0,0.012,0.15);sg.add(ski);
+    const top=new THREE.Mesh(skiGeo(0.075,1.7,0.006,0.085,false),mats.accent);top.position.set(0,0.026,0.2);sg.add(top);
+    const str=new THREE.Mesh(skiGeo(0.025,1.4,0.004,0.07,false),mats.stripe);str.position.set(0,0.032,0.2);sg.add(str);
+    bx(0.09,0.035,0.09,dark,0,0.04,0.17,sg);bx(0.08,0.05,0.11,dark,0,0.045,-0.13,sg);   /* toe piece and heel piece */
+    bx(0.06,0.012,0.36,buckle,0,0.028,0.02,sg);                       /* binding plate */
+    for(const e of [-1,1]){const br=bx(0.008,0.008,0.09,buckle,0.06*e,0.03,-0.07,sg);br.rotation.z=0.4*e;}   /* brake arms */
     parts['ski'+sd]=ski;parts['str'+sd]=str;
   }
-  /* upper body: jacket, backpack, neck gaiter, helmet and goggles */
+  /* upper body: a shaped jacket, wider at the chest than the waist, with a high collar, zip, chest pocket, piping and hem */
   const upper=joint(pelvis,0,0.08,0);upper.rotation.order='YXZ';   /* turn first, then lean */
-  const torso=capsule(0.16,0.24,mats.jacket,upper,0,0.26,0);torso.scale.set(1.3,1,0.82);
-  bx(0.025,0.4,0.02,mats.trim,0,0.25,0.135,upper);                 /* zip */
-  bx(0.27,0.34,0.12,mats.pack,0,0.27,-0.18,upper);                  /* backpack */
+  lathe([[0.15,-0.08],[0.162,-0.02],[0.15,0.08],[0.17,0.24],[0.18,0.34],[0.182,0.41],[0.14,0.475],[0.07,0.51]],mats.jacket,upper,0,1.25,0.8,18);
+  lathe([[0.158,-0.1],[0.168,-0.06],[0.16,-0.03]],mats.accent,upper,0,1.26,0.82,18);   /* hem band */
+  lathe([[0.075,0.47],[0.078,0.56],[0.072,0.6]],mats.jacket,upper,0,1.1,1.05,16);       /* high collar */
+  bx(0.016,0.56,0.012,dark,0,0.27,0.143,upper);                                         /* zip */
+  bx(0.09,0.07,0.012,mats.accent,0.09,0.32,0.14,upper);                                 /* chest pocket flap */
+  /* backpack: rounded, with a top lid, side compression straps and shoulder straps over the shoulders */
+  lathe([[0.02,0.08],[0.11,0.1],[0.125,0.25],[0.115,0.42],[0.02,0.45]],mats.pack,upper,0,1.15,0.55,12).position.set(0,0,-0.2);
+  bx(0.22,0.04,0.11,mats.pack,0,0.44,-0.2,upper);
+  for(const e of [-1,1])bx(0.02,0.3,0.02,dark,0.1*e,0.26,-0.26,upper);   /* side compression straps */
+  for(const e of [-1,1]){const st=new THREE.Mesh(new THREE.TorusGeometry(0.09,0.012,6,14,Math.PI),dark);st.position.set(0.11*e,0.43,-0.02);st.rotation.y=Math.PI/2;upper.add(st);}   /* shoulder straps over the top of each shoulder */
   /* the Thermal Wing: two folded wing spars rising in a V behind the shoulders and the rolled-up wing across the top of the pack */
   const glider=new THREE.Group();upper.add(glider);glider.visible=false;gp.glider=glider;
   for(const e of [-1,1]){const sp=bx(0.03,0.72,0.03,M(0x2a2f36),0.09*e,0.52,-0.22,glider);sp.rotation.z=-0.32*e;}
   const roll=new THREE.Mesh(new THREE.CylinderGeometry(0.075,0.075,0.5,10),M(0xff7a1a,0x3a1500));roll.rotation.z=Math.PI/2;roll.position.set(0,0.47,-0.22);glider.add(roll);
   bx(0.5,0.02,0.155,M(0xf2f7fb),0,0.47,-0.22,glider);              /* white stripe round the wing roll */
-  capsule(0.072,0.04,mats.accent,upper,0,0.52,0);                  /* neck gaiter */
+  /* the head: a neck gaiter pulled up to the goggles, a helmet with vents, a peak and ear pads, and mirrored goggles on a strap */
   const head=joint(upper,0,0.65,0.01);
-  const helm=new THREE.Mesh(new THREE.SphereGeometry(0.135,16,12),M(0x161d28));helm.scale.set(1,1.02,1.12);head.add(helm);
-  const lens=new THREE.Mesh(new THREE.CylinderGeometry(0.142,0.142,0.07,16,1,true,-1.15,2.3),M(0x0d1117,0x2a5d8c));lens.position.y=-0.01;lens.scale.z=1.1;head.add(lens);
-  const strap=new THREE.Mesh(new THREE.CylinderGeometry(0.138,0.138,0.04,16,1,true,1.15,Math.PI*2-2.3),mats.accent);strap.position.y=-0.01;strap.scale.z=1.1;head.add(strap);
-  capsule(0.06,0.02,M(0x1b222c),head,0,-0.1,0.05).scale.set(1,0.7,1);   /* chin, covered by the gaiter */
+  lathe([[0.07,-0.15],[0.085,-0.1],[0.098,-0.04],[0.1,0.0]],mats.accent,head,0,1,1.1,16);   /* gaiter over the chin and nose */
+  const helm=new THREE.Mesh(new THREE.SphereGeometry(0.135,20,14,0,Math.PI*2,0,Math.PI*0.62),SM(0x161d28,0.32));helm.scale.set(1.02,1.05,1.14);helm.position.y=0.005;head.add(helm);
+  const peak=new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.145,0.02,20,1,false,-0.9,1.8),SM(0x161d28,0.32));peak.position.set(0,0.035,0.02);peak.scale.z=1.14;head.add(peak);
+  for(const vx of [-0.04,0,0.04]){const v=bx(0.014,0.006,0.13,dark,vx,0.137,-0.01,head);v.rotation.x=-0.2;}   /* vents */
+  for(const e of [-1,1]){const pad=new THREE.Mesh(new THREE.SphereGeometry(0.05,10,8),SM(0x22262c,0.9));pad.scale.set(0.45,1,1);pad.position.set(0.13*e,-0.02,0);head.add(pad);}
+  const strap=new THREE.Mesh(new THREE.CylinderGeometry(0.152,0.152,0.035,20,1,true,1.2,Math.PI*2-2.4),mats.accent);strap.position.y=-0.005;strap.scale.z=1.1;head.add(strap);
+  const frame=new THREE.Mesh(new THREE.CylinderGeometry(0.152,0.152,0.068,20,1,true,-1.2,2.4),SM(0xf2f7fb,0.5));frame.position.y=-0.008;frame.scale.z=1.1;head.add(frame);
+  const lensMat=new THREE.MeshPhongMaterial({color:0x2a2318,specular:0xffc070,shininess:110,emissive:0x2a1608});   /* mirrored amber lens: the sun glints off it */
+  const lens=new THREE.Mesh(new THREE.CylinderGeometry(0.156,0.156,0.054,20,1,true,-1.12,2.24),lensMat);lens.position.y=-0.008;lens.scale.z=1.1;head.add(lens);
   /* Apex Shell: hood, contrast yoke across the shoulders, longer hem and a stripe over the pack */
   const shell=gp.shell;upper.add(shell);shell.visible=false;
   const hood=new THREE.Mesh(new THREE.SphereGeometry(0.16,12,10),mats.jacket);hood.position.set(0,0.56,-0.12);hood.scale.set(1.2,0.8,0.9);shell.add(hood);
-  const yoke=capsule(0.17,0.12,mats.trim,shell,0,0.41,0);yoke.scale.set(1.32,0.35,0.86);
-  const hem=capsule(0.165,0.06,mats.jacket,shell,0,0.04,0);hem.scale.set(1.34,0.6,0.86);
+  lathe([[0.175,0.38],[0.18,0.42],[0.13,0.47]],mats.trim,shell,0,1.3,0.84,18);
+  lathe([[0.16,-0.16],[0.165,-0.09],[0.16,-0.06]],mats.jacket,shell,0,1.3,0.84,18);
   bx(0.24,0.03,0.13,mats.trim,0,0.36,-0.19,shell);
   /* the Rime Parka: a puffy quilted parka with a hood and a fur ruff round the face */
   const parka=new THREE.Group();upper.add(parka);parka.visible=false;gp.parka=parka;
-  const puff=capsule(0.19,0.22,mats.jacket,parka,0,0.26,0);puff.scale.set(1.32,1,0.98);
-  for(const y of [0.14,0.26,0.38]){const q=new THREE.Mesh(new THREE.TorusGeometry(0.2,0.012,6,20),mats.trim);q.rotation.x=Math.PI/2;q.scale.set(1.3,0.98,1);q.position.y=y;parka.add(q);}   /* quilting */
+  lathe([[0.17,-0.12],[0.19,0.0],[0.2,0.15],[0.205,0.3],[0.19,0.42],[0.13,0.49]],mats.jacket,parka,0,1.28,0.95,18);
+  for(const y of [0.0,0.14,0.28]){const q=new THREE.Mesh(new THREE.TorusGeometry(0.2,0.012,6,20),mats.trim);q.rotation.x=Math.PI/2;q.scale.set(1.28,0.95,1);q.position.y=y;parka.add(q);}   /* quilting */
   const phood=new THREE.Mesh(new THREE.SphereGeometry(0.17,12,10),mats.jacket);phood.position.set(0,0.62,-0.06);phood.scale.set(1.15,1.05,1.1);parka.add(phood);
   const ruff=new THREE.Mesh(new THREE.TorusGeometry(0.15,0.045,8,20),M(0xe9e1d0));ruff.position.set(0,0.65,0.07);parka.add(ruff);
-  /* arms: shoulder, upper arm, elbow, forearm, glove. Each hand holds a pole. */
+  /* arms: a rounded shoulder, a sleeve that tapers to the cuff, and a glove with fingers curled round the pole grip */
   for(const sd of [-1,1]){
     const pv=new THREE.Vector3(0.3*sd,0.15,-0.94).normalize();   /* pole direction in the hand's frame: down, a little back and out to the side */
     const sh=joint(upper,0.22*sd,0.45,0);arms[sd]=sh;
-    const ball=new THREE.Mesh(new THREE.SphereGeometry(0.078,10,8),mats.jacket);sh.add(ball);
-    capsule(0.058,UPPER_ARM-0.1,mats.jacket,sh,0,-UPPER_ARM/2,0);
+    const ball=new THREE.Mesh(new THREE.SphereGeometry(0.066,12,10),mats.jacket);ball.position.x=-0.012*sd;sh.add(ball);
+    lathe([[0.056,-UPPER_ARM],[0.06,-UPPER_ARM*0.5],[0.068,-0.04],[0.06,0.02]],mats.jacket,sh,0,1,1);
     const elbow=joint(sh,0,-UPPER_ARM,0);
-    capsule(0.05,FOREARM-0.12,mats.jacket,elbow,0,-FOREARM/2+0.02,0);
+    const ej=new THREE.Mesh(new THREE.SphereGeometry(0.058,10,8),mats.jacket);elbow.add(ej);
+    lathe([[0.046,-FOREARM+0.04],[0.05,-FOREARM*0.5],[0.057,-0.02],[0.05,0.02]],mats.jacket,elbow,0,1,1);
+    lathe([[0.052,-FOREARM+0.06],[0.055,-FOREARM+0.03],[0.05,-FOREARM+0.015]],mats.accent,elbow,0,1,1);   /* cuff */
     const hand=joint(elbow,0,-FOREARM,0);
-    const glove=new THREE.Mesh(new THREE.SphereGeometry(0.055,10,8),mats.glove);glove.scale.set(0.9,1.25,1);hand.add(glove);
-    const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.014,0.014,1.2,5),mats.pole);
-    pole.position.copy(pv).multiplyScalar(0.52);pole.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),pv);hand.add(pole);
-    const basket=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,0.012,8),mats.pole);
-    basket.position.copy(pv).multiplyScalar(1.0);basket.quaternion.copy(pole.quaternion);hand.add(basket);
-    poles.push(pole,basket);sh.userData={elbow:elbow,hand:hand,pole:[pole,basket]};
+    const palm=new THREE.Mesh(new THREE.SphereGeometry(0.05,12,10),mats.glove);palm.scale.set(0.75,1.05,0.95);palm.position.y=-0.005;hand.add(palm);
+    const fingers=new THREE.Mesh(new THREE.CylinderGeometry(0.036,0.036,0.07,10),mats.glove);fingers.rotation.x=Math.PI/2;fingers.position.set(0,-0.045,0.02);hand.add(fingers);   /* curled fingers */
+    const thumb=new THREE.Mesh(new THREE.CylinderGeometry(0.015,0.017,0.05,8),mats.glove);thumb.position.set(-0.035*sd,-0.02,0.03);thumb.rotation.set(0.6,0,0.7*sd);hand.add(thumb);
+    lathe([[0.045,0.0],[0.05,0.04],[0.045,0.06]],mats.glove,hand,0.0,1,1);   /* gauntlet */
+    /* the pole: a black grip in the hand, a strap, a thin shaft and a basket near the tip */
+    const grip=new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.018,0.13,8),rubber);grip.position.copy(pv).multiplyScalar(0.02);grip.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),pv);hand.add(grip);
+    const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.009,0.012,1.15,6),mats.pole);
+    pole.position.copy(pv).multiplyScalar(0.62);pole.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),pv);hand.add(pole);
+    const basket=new THREE.Mesh(new THREE.CylinderGeometry(0.055,0.055,0.01,10),dark);
+    basket.position.copy(pv).multiplyScalar(1.08);basket.quaternion.copy(pole.quaternion);hand.add(basket);
+    const tip=new THREE.Mesh(new THREE.ConeGeometry(0.008,0.04,5),buckle);tip.position.copy(pv).multiplyScalar(1.2);tip.quaternion.setFromUnitVectors(new THREE.Vector3(0,-1,0),pv.clone().negate());hand.add(tip);
+    poles.push(grip,pole,basket,tip);sh.userData={elbow:elbow,hand:hand,pole:[grip,pole,basket,tip]};
     parts['arm'+sd]=sh;
   }
-  /* the Tahoe Legend snowboard: hidden until worn. The board points down the hill and the rider stands across it. */
+  /* the Tahoe Legend snowboard: hidden until worn. The board points down the hill and the rider stands across it.
+     A shaped board with sidecut and a raised nose and tail, a stripe, gold edges, and bindings with highbacks. */
   const board=new THREE.Group();group.add(board);board.visible=false;gp.board=board;
   const gold=M(0xffc04d,0x7a4a00);
-  bx(0.32,0.035,1.3,mats.skiBase,0,0.018,0,board);
-  for(const e of [-1,1]){const tip=bx(0.32,0.035,0.26,mats.skiBase,0,0.05,0.75*e,board);tip.rotation.x=-0.38*e;}   /* upturned nose and tail */
-  bx(0.1,0.01,1.2,mats.accent,0,0.04,0,board);                                                              /* topsheet stripe */
-  for(const e of [-1,1]){bx(0.02,0.045,1.32,gold,0.16*e,0.02,0,board);bx(0.26,0.07,0.16,M(0x1b222c),0,0.07,0.3*e,board);}   /* gold edges and bindings */
+  board.add(new THREE.Mesh(skiGeo(0.3,1.45,0.03,0.08,true),mats.skiBase)).position.y=0.015;
+  board.add(new THREE.Mesh(skiGeo(0.09,1.3,0.006,0.072,true),mats.accent)).position.y=0.032;
+  for(const e of [-1,1]){const ed=new THREE.Mesh(skiGeo(0.012,1.42,0.032,0.078,true),gold);ed.position.set(0.148*e,0.014,0);board.add(ed);}
+  for(const e of [-1,1]){
+    bx(0.24,0.03,0.18,dark,0,0.045,0.3*e,board);                        /* baseplate */
+    const hb=bx(0.03,0.16,0.18,dark,-0.12,0.12,0.3*e,board);hb.rotation.z=-0.25;   /* highback behind the heel */
+    for(const bz of [-0.05,0.05])bx(0.26,0.02,0.035,mats.accent,0.01,0.1,0.3*e+bz,board);   /* straps */
+  }
   group.scale.setScalar(RIDER_SCALE);
   shadowize(group);
   const shadow=new THREE.Mesh(new THREE.CircleGeometry(1,18),new THREE.MeshBasicMaterial({color:0x13243a,transparent:true,opacity:0.28,depthWrite:false,fog:false}));
@@ -424,15 +482,18 @@ const shadow=RIDER.shadow,shadowWrap=RIDER.shadowWrap;
 /* 0xff8800 -> [1, 0.53, 0]: red, green and blue from 0 to 1, for particle colours */
 const hexRGB=h=>[((h>>16)&255)/255,((h>>8)&255)/255,(h&255)/255];
 /* a look is what a rider is wearing: item ids plus [jacket,pants,boots,ski accent] colours. Sent to other players and applied to their model. */
+/* set a clothing colour. Colours are picked as screen colours; the lighting maths wants them converted ("linear"), which keeps
+   them rich and saturated under the bright camera exposure instead of washing out to pastel */
+const fab=(mat,hex)=>mat.color.setHex(hex).convertSRGBToLinear();
 function setRiderLook(R,look){
   const lost=look.skis==='lost';
   R.board=look.skis==='board';   /* poseRider swaps skis for the board */
-  R.mats.skiBase.color.setHex(lost?0x12171f:(R.board?0x14233d:look.c[3]));
-  R.mats.stripe.color.setHex(look.c[3]);R.mats.accent.color.setHex(look.c[3]);
+  fab(R.mats.skiBase,lost?0x12171f:(R.board?0x14233d:look.c[3]));
+  R.mats.stripe.color.setHex(look.c[3]);fab(R.mats.accent,look.c[3]);
   R.parts.str1.visible=R.parts['str-1'].visible=lost;
-  R.mats.jacket.color.setHex(look.c[0]);R.mats.pants.color.setHex(look.c[1]);R.mats.boot.color.setHex(look.c[2]);
+  fab(R.mats.jacket,look.c[0]);fab(R.mats.pants,look.c[1]);fab(R.mats.boot,look.c[2]);
   R.gp.shell.visible=look.jacket==='apex';R.gp.parka.visible=look.jacket==='rime';
-  R.mats.pack.color.setHex(look.c[4]!==undefined?look.c[4]:0x33404f);R.gp.glider.visible=look.pack==='glider';   /* older looks have no pack */
+  fab(R.mats.pack,look.c[4]!==undefined?look.c[4]:0x33404f);R.gp.glider.visible=look.pack==='glider';   /* older looks have no pack */
   const rid=look.pants==='ridge';R.gp.ridge.visible=rid;R.gp.ridgeSides.forEach(g=>{g.visible=rid;});R.legs.forEach(l=>l.scale.set(rid?1.3:1,1,rid?1.2:1));
   const tb=look.boots==='trail';R.gp.trailSides.forEach(g=>{g.visible=tb;});R.boots.forEach(b=>{b.scale.set(tb?1.08:1,tb?1.4:1,tb?1.1:1);b.position.y=tb?0.02:-0.01;});
 }
